@@ -27,6 +27,7 @@ import sys
 from lxml import etree  # type: ignore
 from mpapi.search import Search
 from mpapi.module import Module
+from MpApi.aio.session import Session
 from typing import Any, Union
 from yarl import URL
 
@@ -38,7 +39,7 @@ aiohttp seems to accept baseURL only a host. Path parts after the host get ignor
 """
 
 
-async def get_definition(session, *, mtype: str = None) -> str:
+async def get_definition(session:Session, *, mtype: str = None) -> str:
     if mtype is None:
         url = session.appURL / "module/definition"
     else:
@@ -50,17 +51,17 @@ async def get_definition(session, *, mtype: str = None) -> str:
         # return response doesn't seem to work
 
 
-async def get_definition2(session, *, mtype: str = None) -> Module:
+async def get_definition2(session:Session, *, mtype: str = None) -> Module:
     txt = await get_definition(session, mtype=mtype)
     return Module(xml=txt)
 
 
-async def run_saved_query(session, *, ID: int, mtype: str, xml: str) -> str:
+async def run_saved_query(session:Session, *, ID: int, mtype: str, xml: str) -> str:
     """
     Run a pre-existing saved search
     POST http://.../ria-ws/application/module/{module}/search/savedQuery/{__id}
 
-    Zetcom reminds us: A request body must be provided, in order to control the paging. 
+    Zetcom reminds us: A request body must be provided, in order to control the paging.
     For example:
 
     <application
@@ -80,10 +81,10 @@ async def run_saved_query(session, *, ID: int, mtype: str, xml: str) -> str:
 
 
 async def run_saved_query2(
-    session, *, ID: int, mtype: str, limit: int = -1, offset: int = 0
+    session:Session, *, ID: int, mtype: str, limit: int = -1, offset: int = 0
 ) -> Module:
     """
-    Like run_saved_query just with 
+    Like run_saved_query just with
     - limit and offset as parameters
     - query validation
     - returns results in Module
@@ -104,7 +105,31 @@ async def run_saved_query2(
         """
     q = Search(fromString=xml)
     q.validate(mode="search")
-    txt = await run_saved_query(ID=ID, mtype=mtype, xml=xml)
+    txt = await run_saved_query(session, ID=ID, mtype=mtype, xml=xml)
+    return Module(xml=txt)
+
+
+async def search(session, *, xml: str) -> str:
+    ET = etree.fromstring(bytes(xml, "UTF-8"))
+    mtype = ET.xpath(
+        "/s:application/s:modules/s:module/@name",
+        namespaces={"s": "http://www.zetcom.com/ria/ws/module/search"},
+    )[0]
+    if not mtype:
+        raise TypeError("Unknown module")
+
+    url = session.appURL / f"module/{mtype}/search"
+
+    print(f"{mtype=} {url=}")
+
+    async with session.session.post(url, data=xml) as response:
+        print(f"{response.request_info=}")
+        return await response.text()
+
+
+async def search2(session, *, query: Search) -> Module:
+    query.validate(mode="search")
+    txt = await search(session, xml=query.toString())
     return Module(xml=txt)
 
 
