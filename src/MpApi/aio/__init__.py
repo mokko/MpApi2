@@ -1,14 +1,11 @@
 """An Unofficial Asynchronous Client for the MuseumPlus API"""
 
 __version__ = "0.0.1"
-credentials = "credentials.py"  # expect credentials in pwd
 import argparse
-from monk import Monk
+import asyncio
+from MpApi.aio.monk import Monk
 #from pathlib import Path
-
-if Path(credentials).exists():
-    with open(credentials) as f:
-        exec(f.read())
+#from mpapi.constants import get_credentials, NSMAP
 
 
 def monk():
@@ -16,7 +13,6 @@ def monk():
     parser.add_argument("-j", "--job", help="job to run", required=True)
     parser.add_argument("-d", "--dsl", help="jobs file", default="jobs.dsl")
     args = parser.parse_args()
-
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    m = Monk(baseURL=baseURL, pw=pw, user=user)
-    asyncio.run(m.execute_dsl(fn=args.dsl, job=args.job))
+    user, pw, baseURL = get_credentials()
+    m = Monk(conf_fn=args.dsl)
+    m.run_job(job=args.job)

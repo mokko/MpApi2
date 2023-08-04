@@ -3,19 +3,18 @@ requires = ["flit_core >=3.2,<4"]
 build-backend = "flit_core.buildapi"
 
 [project]
-name = "MpApi2"
+name = "MpApi.aio"
 authors = [{name = "Maurice Mengel", email = "mauricemengel@gmail.com"}]
 readme = "README.md"
 license = {file = "LICENSE"}
 classifiers = ["License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)"]
 dynamic = ["version", "description"]
 keywords = ["museum", "museumPlus", "api client", "asynchronous"]
-# datetime should be included in Python
-# typing_extensions makes newer typing features available to older Pythons 
 dependencies = [
 	"flit",
-    "lxml >=4.8.0", #pathlike objects
-    "requests >=2.6",
+    "lxml >=4.8.0",    # pathlike objects
+    "aiohttp >=3.8.5", # current version as per time of development
+	"yarl"
 ]
 [project.optional-dependencies]
 test = [
@@ -23,6 +22,4 @@ test = [
 ]
 
 [project.scripts]
-monk = 'mpapi2:monk'
-#mpReplace = 'mpapi:replace'
-#getAttachments = 'mpapi:getAttachments'
+monk = 'MpApi.aio:monk'
