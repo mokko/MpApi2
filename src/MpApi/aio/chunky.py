@@ -24,13 +24,11 @@ USAGE
         relatedTypesL = await chnkr.analyze_related(data=m)
         for target in relatedTypesL:
             data = get_related_items(data=m, target=target):
-            
-            
-            
 """
+
 allowed_query_types = ["approval", "exhibit", "group", "loc", "query"]
-allowed_mtypes = ["Multimedia", "Object", "Person"]  # todo: teach me more
-# ObjectGroup
+allowed_mtypes = ["Multimedia", "Object", "Person"]  # for query_maker
+
 import asyncio
 import datetime
 import MpApi.aio.client as client
@@ -60,7 +58,12 @@ class Chunky:
         return {target for target in targetL}
 
     async def apack_chunk(
-        self, *, session: Session, qtype: str, ID: int, job: str
+        self,
+        *,
+        ID: int,
+        job: str,
+        qtype: str,
+        session: Session,
     ) -> None:
 
         # no of results; chunks needed for results
@@ -76,6 +79,7 @@ class Chunky:
         coroL = list()
         for cno in range(cmax):  # cmax is 0-based
             cno += 1
+            print(f"***{cno=}")
             coroL.append(
                 self.apack_per_chunk(
                     cno=cno, ID=ID, job=job, qtype=qtype, session=session
@@ -86,11 +90,11 @@ class Chunky:
     async def apack_per_chunk(
         self, *, cno: int, ID: int, job: str, qtype: str, session: Session
     ) -> None:
-        offset = int(cno - 1 * self.chunk_size)  # not sure about +1
+        offset = int(cno - 1) * self.chunk_size  # not sure about +1
         # 1: 0 * 1000 = 0
         # 2: 1 * 1000 = 1000
         # simple chunck
-        print(f"Getting objects by qtype '{qtype}' (get_by_type)... ")
+        print(f"Getting objects by qtype '{qtype}' /w offset {offset}... ")
         chunk = await self.get_by_type(
             session=session, qtype=qtype, ID=ID, offset=offset
         )
@@ -99,9 +103,9 @@ class Chunky:
         chunk_fn = self._chunk_path(qtype=qtype, ID=ID, cno=cno, job=job, suffix=".xml")
         print(f"We determined that {chunk_fn} is the right path for this chunk")
 
-        relatedL = await self.analyze_related(data=chunk)
+        related_targetsL = await self.analyze_related(data=chunk)
         related_coroL = list()
-        for target in sorted(relatedL):
+        for target in sorted(related_targetsL):
             if target in ("Address"):
                 continue
 
@@ -162,7 +166,7 @@ class Chunky:
             "loc": "ObjCurrentLocationVoc",
         }
 
-        q = Search(module="Object", limit=self.chunk_size, offset=0)
+        q = Search(module="Object", limit=self.chunk_size, offset=offset)
 
         q.addCriterion(
             field=fields[qtype],
