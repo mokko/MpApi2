@@ -1,5 +1,6 @@
 import aiohttp
 import asyncio
+from mpapi.search import Search
 from MpApi.aio.session import Session
 import MpApi.aio.client as client
 from mpapi.constants import get_credentials

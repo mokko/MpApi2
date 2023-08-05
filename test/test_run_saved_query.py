@@ -27,8 +27,8 @@ def test_run_saved_query():
             txt = await client.run_saved_query(
                 session, ID=485072, mtype="Object", xml=xml
             )
+            assert len(txt) > 500
 
-    assert len(txt) > 500
     asyncio.run(saved_query())
 
 

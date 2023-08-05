@@ -36,8 +36,7 @@ USAGE
 
 import aiohttp
 import asyncio
-
-import datetime
+import datetime  # still import
 
 # import logging
 from mpapi.constants import get_credentials
@@ -46,12 +45,13 @@ from mpapi.constants import get_credentials
 from MpApi.aio.chunky import Chunky
 from MpApi.aio.session import Session
 from pathlib import Path
+import signal
+import sys
 
 # import sys
 # from typing import List, Any
 
 acceptLang = "de"
-allowed_commands = ["attachments", "chunk", "getItem", "getPack", "pack"]
 maxConnections = 30  # simultaneous connections
 
 # I dont remember what all does;
@@ -86,52 +86,18 @@ class Monk:
            find out which related target records in that data
         """
 
-        chnkr = Chunky(
-            chunk_size=self.chunk_size,
-        )
-
         print(f"apack with {qtype} {ID}")
         print(f"{self.chunk_size=}")
+        chnkr = Chunky(chunk_size=self.chunk_size)
 
         async with Session(user=self.user, pw=self.pw, baseURL=self.baseURL) as session:
-            # no of results; target is always Object?
-            rno, cmax = await chnkr.count_results(
-                session=session, qtype=qtype, target="Object", ID=ID
+            self.session = session
+            await chnkr.apack_chunk(
+                ID=ID,
+                job=self.job,
+                qtype=qtype,
+                session=session,
             )
-            if not rno:
-                print("Nothing to download!")
-                return
-
-            print(f"{rno=} {cmax=}")
-            for cno in range(cmax):  # cmax is 0-based
-                offset = int(cno - 1 * self.chunk_size)  # not sure about +1
-                # 1: 0 * 1000 = 0
-                # 2: 1 * 1000 = 1000
-                # simple chunck
-                print(f"Getting objects by qtype '{qtype}' (get_by_type)")
-                chunk = await chnkr.get_by_type(
-                    session=session, qtype=qtype, ID=ID, offset=offset
-                )
-                chunk_fn = self._chunk_path(qtype=qtype, ID=ID, cno=cno, suffix=".zip")
-                print(f"We determined that {chunk_fn} is the right path for this chunk")
-                relatedL = await chnkr.analyze_related(data=chunk)
-                for target in sorted(relatedL):
-                    if target not in ("Address"):
-                        print(f"getting {target}")
-                        relatedM = await chnkr.get_related_items(
-                            data=chunk, session=session, target=target
-                        )
-                        print(
-                            f"adding related {target} {len(relatedM)} items... ", end=""
-                        )
-                        chunk += relatedM
-                        print("done")
-                chunk.clean()
-                print(f"zipping multi chunk {chunk_fn}")
-                chunk.toZip(path=chunk_fn)  # write zip file to disk
-                print("validating multi chunk")
-                chunk.validate()
-                print("done")
 
     def run_job(self, *, job: str) -> None:
         """
@@ -176,14 +142,21 @@ class Monk:
                         # each = each.strip().replace(",", "")
                         # chunker.modules.append(each)
                         else:
-                            print(f"WARNING:Ignoring unknown config value '{parts[0]}'")
+                            print(
+                                f"WARNING: Ignoring unknown config value '{parts[0]}'"
+                            )
 
                     if active_job:
                         if parts[0] == "apack":
-                            asyncio.run(self.apack(qtype=parts[1], ID=int(parts[2])))
+                            try:
+                                asyncio.run(
+                                    self.apack(qtype=parts[1], ID=int(parts[2]))
+                                )
+                            except KeyboardInterrupt:
+                                asyncio.run(self._close())
                         else:
                             print(
-                                f"WARNING:Ignoring unknown command keyword '{parts[0]}'"
+                                f"WARNING: Ignoring unknown command keyword '{parts[0]}'"
                             )
         if any_job == False:
             print("Didn't find a matching job in dsl file!")
@@ -209,3 +182,7 @@ class Monk:
         if not project_dir.is_dir():
             Path.mkdir(project_dir, parents=True)
         return project_dir / f"{qtype}-{ID}-chunk{cno}{suffix}"
+
+    async def _close(self) -> None:
+        print("Attemptung graceful shutdown!")
+        await self.session.close()

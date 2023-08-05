@@ -4,7 +4,7 @@ Async version of the chunker. Uses deterministic search.
 chunking logarithm
     for a given query, 
     (1) determine number of results and  number of chunks to get all results
-    (2) d/l first chunk, 
+    (2) d/l first chunk objects only, 
     (3) get all related items and assemble everything in one chunk
     (4) zip and save the chunk
     (5) contiue at (3) for the next chunk until last chunk
@@ -32,12 +32,14 @@ allowed_query_types = ["approval", "exhibit", "group", "loc", "query"]
 allowed_mtypes = ["Multimedia", "Object", "Person"]  # todo: teach me more
 # ObjectGroup
 import asyncio
+import datetime
 import MpApi.aio.client as client
 from MpApi.aio.session import Session
 from mpapi.constants import NSMAP
 from mpapi.module import Module
 from mpapi.search import Search
 from typing import Iterator
+from pathlib import Path
 
 
 class Chunky:
@@ -57,6 +59,72 @@ class Chunky:
         )
         return {target for target in targetL}
 
+    async def apack_chunk(
+        self, *, session: Session, qtype: str, ID: int, job: str
+    ) -> None:
+
+        # no of results; chunks needed for results
+        # target is always Object?
+        rno, cmax = await self.count_results(
+            session=session, qtype=qtype, target="Object", ID=ID
+        )
+        if not rno:
+            print("Nothing to download!")
+            return
+
+        print(f"{rno=} {cmax=}")
+        coroL = list()
+        for cno in range(cmax):  # cmax is 0-based
+            cno += 1
+            coroL.append(
+                self.apack_per_chunk(
+                    cno=cno, ID=ID, job=job, qtype=qtype, session=session
+                )
+            )
+        await asyncio.gather(*coroL)
+
+    async def apack_per_chunk(
+        self, *, cno: int, ID: int, job: str, qtype: str, session: Session
+    ) -> None:
+        offset = int(cno - 1 * self.chunk_size)  # not sure about +1
+        # 1: 0 * 1000 = 0
+        # 2: 1 * 1000 = 1000
+        # simple chunck
+        print(f"Getting objects by qtype '{qtype}' (get_by_type)... ")
+        chunk = await self.get_by_type(
+            session=session, qtype=qtype, ID=ID, offset=offset
+        )
+        print("done")
+
+        chunk_fn = self._chunk_path(qtype=qtype, ID=ID, cno=cno, job=job, suffix=".xml")
+        print(f"We determined that {chunk_fn} is the right path for this chunk")
+
+        relatedL = await self.analyze_related(data=chunk)
+        related_coroL = list()
+        for target in sorted(relatedL):
+            if target in ("Address"):
+                continue
+
+            print(f"getting {target}")
+            related_coroL.append(
+                self.get_related_items(data=chunk, session=session, target=target)
+            )
+        relatedL = await asyncio.gather(*related_coroL)
+
+        for relatedM in relatedL:
+            print(f"adding related {target} {len(relatedM)} items... ", end="")
+            chunk += relatedM
+            print("done")
+        chunk.clean()
+
+        print(f"zipping multi chunk {chunk_fn}...")
+        chunk.toZip(path=chunk_fn)  # write zip file to disk
+        print("done")
+
+        print("validating multi chunk...", end="")
+        chunk.validate()
+        print("done")
+
     async def count_results(
         self, *, session: Session, qtype: str, target: str, ID: int
     ) -> int:
@@ -66,7 +134,7 @@ class Chunky:
         one fast http query.
         """
         q = await self.query_maker(qtype=qtype, target=target, ID=ID, offset=0, limit=1)
-        print(f"{str(q)}")
+        # print(f"{str(q)}")
         q.addField(field="__id")
         q.validate(mode="search")
         m = await client.search2(session, query=q)
@@ -102,6 +170,7 @@ class Chunky:
             value=str(ID),
         )
         q.validate(mode="search")
+        print(str(q))
         return await client.search2(session, query=q)
 
     async def get_related_items(self, *, session: Session, data: Module, target: str):
@@ -229,7 +298,24 @@ class Chunky:
             )
         return q
 
+    #
+    #
+    #
 
-#
-#
-#
+    def _chunk_path(
+        self, *, qtype: str, ID: int, cno: int, job: str, suffix: str = ".xml"
+    ) -> Path:
+        """
+        Rerurn the a path for the current chunk. Relies on self.job being set
+        (which gets set in run_job).
+
+        Note: I was thinking of moving this to chunky, but I dont have Path there and
+        self.job.
+        """
+        if job is None:
+            raise TypeError("ERROR: No job name. Can't create project dir!")
+        date: str = datetime.datetime.today().strftime("%Y%m%d")
+        project_dir: Path = Path(job) / date
+        if not project_dir.is_dir():
+            Path.mkdir(project_dir, parents=True)
+        return project_dir / f"{qtype}-{ID}-chunk{cno}{suffix}"

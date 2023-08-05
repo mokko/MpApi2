@@ -30,7 +30,7 @@ class Session:
 
     async def close(self) -> None:
         """Not well tested!"""
-        self.session.close()
+        await self.session.close()
         del self.session
 
     async def get(self) -> Any:

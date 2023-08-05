@@ -1,9 +1,11 @@
 import asyncio
+import datetime
 from mpapi.constants import get_credentials
 from mpapi.module import Module
 from mpapi.search import Search
 from MpApi.aio.chunky import Chunky
 from MpApi.aio.session import Session
+from pathlib import Path
 import pytest
 
 user, pw, baseURL = get_credentials()
@@ -55,3 +57,13 @@ async def test_get_by_type():
         m = await chnkr.get_by_type(session=session, qtype="group", ID=182397)
         assert m
         print(m)
+
+
+def test_chunk_path():
+    chnkr = Chunky()
+    path = chnkr._chunk_path(qtype="group", ID=182397, cno=1, suffix=".xml", job="test")
+    print("{path=}")
+    date: str = datetime.datetime.today().strftime("%Y%m%d")
+
+    p = Path("test") / date / "group-182397-chunk1.xml"
+    assert str(path) == str(p)
