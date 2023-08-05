@@ -10,7 +10,7 @@ from MpApi.aio.session import Session
 import aiohttp
 import asyncio
 from types import TracebackType
-from typing import Any, Optional, Type
+from typing import Any, Optional, Self, Type
 from yarl import URL
 
 
@@ -29,7 +29,7 @@ class Session:
         self.appURL = URL(baseURL) / "ria-ws/application"
 
     async def close(self) -> None:
-        """Untested!"""
+        """Not well tested!"""
         self.session.close()
         del self.session
 
@@ -48,7 +48,7 @@ class Session:
         finally:
             return self.session
 
-    async def __aenter__(self):  # params from init? ,
+    async def __aenter__(self) -> Self:  # params from init? ,
         session = aiohttp.ClientSession(
             auth=aiohttp.BasicAuth(self.user, password=self.pw),
             # accepts only absolute base_urls without path part

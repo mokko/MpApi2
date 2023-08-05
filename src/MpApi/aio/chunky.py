@@ -2,12 +2,12 @@
 Async version of the chunker. Uses deterministic search.
 
 chunking logarithm
-    for a given query, determine
-    (1) - determine number of results
-    (2) - determine number of chunks
-    (3) - d/l first chunk, zip and save
-    (4) - repeat (3) until done
-
+    for a given query, 
+    (1) determine number of results and  number of chunks to get all results
+    (2) d/l first chunk, 
+    (3) get all related items and assemble everything in one chunk
+    (4) zip and save the chunk
+    (5) contiue at (3) for the next chunk until last chunk
 
 USAGE
     from MpApi.aio.chunky import Chunky
@@ -15,13 +15,18 @@ USAGE
     
     chnkr = Chunky()
     async with Session(user=user,pw=pw, baseURL=baseURL):
-        rno = await chnkr.count_results(qtype="group", target="Object", ID=1234)
-        chunk = await chnkr.get_by_type(qtype="group", ID=1234, offset=0)
-        relatedTypesL = await chnkr.analyze_related(data=m)
-        q = await chnkr.query_maker(qtype=qt, ID=ID, target=target)
-        
         for chunk in chnkr.get_by_type(qtype=qtype, ID=ID):
             chunk.toZip(path="file.xml.zip")
+
+    # other
+        q = await chnkr.query_maker(qtype=qt, ID=ID, target=target)
+        res_no, chk_no = await chnkr.count_results(qtype="group", target="Object", ID=1234)
+        relatedTypesL = await chnkr.analyze_related(data=m)
+        for target in relatedTypesL:
+            data = get_related_items(data=m, target=target):
+            
+            
+            
 """
 allowed_query_types = ["approval", "exhibit", "group", "loc", "query"]
 allowed_mtypes = ["Multimedia", "Object", "Person"]  # todo: teach me more
@@ -52,27 +57,36 @@ class Chunky:
         )
         return {target for target in targetL}
 
-    async def count_results(self, *, session: Session, qtype: str, target: str, ID: int) -> int:
+    async def count_results(
+        self, *, session: Session, qtype: str, target: str, ID: int
+    ) -> int:
         """
-        Return the number of results for a given query. Query is described by query_type,
-        ID, and target_type: e.g. group 1234 Object. Takes one http query.
+        Return the number of results for a given query. The query is described by query
+        type (qtype, e.g. group), ID, and target (target): e.g. group 1234 Object. Takes
+        one fast http query.
         """
-        q = await self.query_maker(
-            qtype=qtype, target=target, ID=ID, offset=0, limit=1
-        )
-        print (f"{str(q)}")
+        q = await self.query_maker(qtype=qtype, target=target, ID=ID, offset=0, limit=1)
+        print(f"{str(q)}")
         q.addField(field="__id")
         q.validate(mode="search")
         m = await client.search2(session, query=q)
-        return m.totalSize(module=target)
+        rno = m.totalSize(module=target)
+        chnk_no = int(rno / self.chunk_size) + 1  # no of chunks
+        return rno, chnk_no
 
     async def get_by_type(
         self,
         *,
-        ID:int,
-        qtype:str,
+        ID: int,
+        qtype: str,
+        session: Session,
         offset: int = 0,
-    ) -> Iterator[Module]:
+    ) -> Module:
+        """
+        Gets one chunk of Objects. Limit is automatically set to chunk_size. Returns
+        a Module object.
+        """
+
         fields: dict = {  # TODO: untested
             "approval": "ObjPublicationGrp.TypeVoc",
             "exhibit": "ObjRegistrarRef.RegExhibitionRef.__id",
@@ -83,19 +97,41 @@ class Chunky:
         q = Search(module="Object", limit=self.chunk_size, offset=0)
 
         q.addCriterion(
-            field=fields[Type],
+            field=fields[qtype],
             operator="equalsField",
             value=str(ID),
         )
         q.validate(mode="search")
-        print(self.session)
-        m = await self.api.search2(query=q)
-        totalSize = m.totalSize(module="Object")
+        return await client.search2(session, query=q)
 
-        for each in ("a", "b", "c"):
-            print("yielding a chunk")
-            yield Module()
+    async def get_related_items(self, *, session: Session, data: Module, target: str):
+        """
+        Given some object data, query for related records. Related records are
+        those linked to from inside the object data. Return a new module of target type.
+        """
+        dataET = data.toET()
 
+        IDs: Any = dataET.xpath(
+            f"//m:moduleReference[@targetModule = '{target}']/m:moduleReferenceItem/@moduleItemId",
+            namespaces=NSMAP,
+        )
+
+        q = Search(module=target, limit=-1, offset=0)
+        relIDs = set(IDs)  # IDs are not necessarily unique, but we want unique
+        count = 1  # one-based out of tradition; counting unique IDs
+        for ID in sorted(relIDs):
+            # print(f"{target} {ID}")
+            if count == 1 and len(relIDs) > 1:
+                q.OR()
+            q.addCriterion(
+                operator="equalsField",
+                field="__id",
+                value=str(ID),
+            )
+            count += 1
+        q.validate(mode="search")
+        relatedM = await client.search2(session, query=q)
+        return relatedM
 
     async def query_maker(
         self, *, ID, qtype: str, target: str, offset: int = 0, limit: int = -1
@@ -193,31 +229,7 @@ class Chunky:
             )
         return q
 
-    async def query_related_items(self, *, data: Module, target: str):
-        """
-        Given some object data, query for related records. Related records are
-        those linked to from inside the object data. Return a new module of target type.
-        """
-        dataET = data.toET()
 
-        IDs: Any = dataET.xpath(
-            f"//m:moduleReference[@targetModule = '{target}']/m:moduleReferenceItem/@moduleItemId",
-            namespaces=NSMAP,
-        )
-
-        q = Search(module=target, limit=-1, offset=0)
-        relIDs = set(IDs)  # IDs are not necessarily unique, but we want unique
-        count = 1  # one-based out of tradition; counting unique IDs
-        for ID in sorted(relIDs):
-            # print(f"{target} {ID}")
-            if count == 1 and len(relIDs) > 1:
-                q.OR()
-            q.addCriterion(
-                operator="equalsField",
-                field="__id",
-                value=str(ID),
-            )
-            count += 1
-        q.validate(mode="search")
-        m = await client.search2(self.session, query=q)
-
+#
+#
+#

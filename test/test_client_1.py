@@ -41,6 +41,7 @@ def test_get_definition2():
     same as above just use get_definition2 instead of get_definition, where
     we get a Module object back.
     """
+
     async def no_module():
         async with Session(user=user, pw=pw, baseURL=baseURL) as session:
             m = await client.get_definition2(session)
@@ -56,6 +57,7 @@ def test_get_definition2():
             assert m
 
     asyncio.run(with_module())
+
 
 #
 # test search
@@ -101,10 +103,10 @@ def test_search2():
 
 def tast_search_single():
     """
-    We query the objects from one group which has about 49 objects, but we limit query 
+    We query the objects from one group which has about 49 objects, but we limit query
     to 1. Response still reports the total number of hits, in this case 49 in totalSize
     although it only includes a single item.
-    
+
     In this version of the test, we write response to file.
     """
     q = Search(module="Object", limit=1, offset=0)

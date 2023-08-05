@@ -70,7 +70,7 @@ class Monk:
         self.baseURL = baseURL
         self.user = user
         self.pw = pw
-        
+
     async def apack(self, *, qtype: str, ID: int):
         """
         We need to get data for every module mentioned in self.modules. We need to chunk the
@@ -87,7 +87,7 @@ class Monk:
         """
 
         chnkr = Chunky(
-            chunk_size=self.chunk_size, 
+            chunk_size=self.chunk_size,
         )
 
         print(f"apack with {qtype} {ID}")
@@ -95,33 +95,50 @@ class Monk:
 
         async with Session(user=self.user, pw=self.pw, baseURL=self.baseURL) as session:
             # no of results; target is always Object?
-            result_no = await chnkr.count_results(session=session, qtype=qtype, target="Object", ID=ID) 
-            if not result_no:
+            rno, cmax = await chnkr.count_results(
+                session=session, qtype=qtype, target="Object", ID=ID
+            )
+            if not rno:
                 print("Nothing to download!")
                 return
 
-            #no of chunks
-            chnk_no = int(result_no/chnkr.chunk_size)+1
-
-            print(f"{chnk_no=}")
-            for c in range(chnk_no):
-                print (c)
-
-        #get_objects(qtype="group", ID=1234)    
-        # let the chunker return some chunks and save them here
-        #for chunk in self.chunker.getByType(Type=Type, ID=ID):
-        #    if chunk:  # a Module object
-                # chunk_fn = self._chunkPath(Type=Type, ID=ID, no=no, suffix=".xml")
-                # chunk.clean()
-                # self.info(f"zipping chunk {chunk_fn}")
-                # chunk.toZip(path=chunk_fn) # write zip file to disk
-                # chunk.validate()
-        #        pass
+            print(f"{rno=} {cmax=}")
+            for cno in range(cmax):  # cmax is 0-based
+                offset = int(cno - 1 * self.chunk_size)  # not sure about +1
+                # 1: 0 * 1000 = 0
+                # 2: 1 * 1000 = 1000
+                # simple chunck
+                print(f"Getting objects by qtype '{qtype}' (get_by_type)")
+                chunk = await chnkr.get_by_type(
+                    session=session, qtype=qtype, ID=ID, offset=offset
+                )
+                chunk_fn = self._chunk_path(qtype=qtype, ID=ID, cno=cno, suffix=".zip")
+                print(f"We determined that {chunk_fn} is the right path for this chunk")
+                relatedL = await chnkr.analyze_related(data=chunk)
+                for target in sorted(relatedL):
+                    if target not in ("Address"):
+                        print(f"getting {target}")
+                        relatedM = await chnkr.get_related_items(
+                            data=chunk, session=session, target=target
+                        )
+                        print(
+                            f"adding related {target} {len(relatedM)} items... ", end=""
+                        )
+                        chunk += relatedM
+                        print("done")
+                chunk.clean()
+                print(f"zipping multi chunk {chunk_fn}")
+                chunk.toZip(path=chunk_fn)  # write zip file to disk
+                print("validating multi chunk")
+                chunk.validate()
+                print("done")
 
     def run_job(self, *, job: str) -> None:
         """
         Parse the dsl file at self.conf_fn and run the provided job.
         """
+        self.job = job
+        any_job = False
         with open(self.conf_fn, mode="r") as file:
             c = 0  # line counter
             for line in file:
@@ -138,9 +155,10 @@ class Monk:
                             f"Label doesn't end with colon: line {c} {parts[0]}"
                         )
                     current_label = parts[0][:-1]
-                    #print(f"{current_label=} {job=}")
-                    if current_label == job:                        
+                    # print(f"{current_label=} {job=}")
+                    if current_label == job:
                         active_job = True
+                        any_job = True
                     else:
                         active_job = False
 
@@ -153,37 +171,41 @@ class Monk:
                         if parts[0] == "chunkSize":
                             self.chunk_size = int(parts[1])
                         # elif parts[0] == "modules":
-                            # chunker.modules = []
-                            # for each in parts[1:]:
-                                # each = each.strip().replace(",", "")
-                                # chunker.modules.append(each)
+                        # chunker.modules = []
+                        # for each in parts[1:]:
+                        # each = each.strip().replace(",", "")
+                        # chunker.modules.append(each)
                         else:
                             print(f"WARNING:Ignoring unknown config value '{parts[0]}'")
 
                     if active_job:
                         if parts[0] == "apack":
-                            print("GH!")
                             asyncio.run(self.apack(qtype=parts[1], ID=int(parts[2])))
                         else:
-                            print(f"WARNING:Ignoring unknown command keyword '{parts[0]}'")
-
+                            print(
+                                f"WARNING:Ignoring unknown command keyword '{parts[0]}'"
+                            )
+        if any_job == False:
+            print("Didn't find a matching job in dsl file!")
 
     #
     # helpers
     #
 
-    def _project_dir(self, *, job: str) -> None:
+    def _chunk_path(
+        self, *, qtype: str, ID: int, cno: int, suffix: str = ".xml"
+    ) -> Path:
         """
-        makes project dir in cwd/job/YYYYMMDD
+        Rerurn the a path for the current chunk. Relies on self.job being set
+        (which gets set in run_job).
 
-        There is no check that job really exists in jobs.dsl file, i.e. we're trusting
-        the user.
-
-        Side-effect: We're setting self.project_dir. I don't know that I really need it.
+        Note: I was thinking of moving this to chunky, but I dont have Path there and
+        self.job.
         """
+        if self.job is None:
+            raise TypeError("ERROR: No job name. Can't create project dir!")
         date: str = datetime.datetime.today().strftime("%Y%m%d")
-        project_dir: Path = Path(job) / date
+        project_dir: Path = Path(self.job) / date
         if not project_dir.is_dir():
             Path.mkdir(project_dir, parents=True)
-            # should raise error if file at that location
-        return project_dir
+        return project_dir / f"{qtype}-{ID}-chunk{cno}{suffix}"

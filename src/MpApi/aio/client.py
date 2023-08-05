@@ -39,7 +39,7 @@ aiohttp seems to accept baseURL only a host. Path parts after the host get ignor
 """
 
 
-async def get_definition(session:Session, *, mtype: str = None) -> str:
+async def get_definition(session: Session, *, mtype: str = None) -> str:
     if mtype is None:
         url = session.appURL / "module/definition"
     else:
@@ -51,12 +51,12 @@ async def get_definition(session:Session, *, mtype: str = None) -> str:
         # return response doesn't seem to work
 
 
-async def get_definition2(session:Session, *, mtype: str = None) -> Module:
+async def get_definition2(session: Session, *, mtype: str = None) -> Module:
     txt = await get_definition(session, mtype=mtype)
     return Module(xml=txt)
 
 
-async def run_saved_query(session:Session, *, ID: int, mtype: str, xml: str) -> str:
+async def run_saved_query(session: Session, *, ID: int, mtype: str, xml: str) -> str:
     """
     Run a pre-existing saved search
     POST http://.../ria-ws/application/module/{module}/search/savedQuery/{__id}
@@ -81,7 +81,7 @@ async def run_saved_query(session:Session, *, ID: int, mtype: str, xml: str) -> 
 
 
 async def run_saved_query2(
-    session:Session, *, ID: int, mtype: str, limit: int = -1, offset: int = 0
+    session: Session, *, ID: int, mtype: str, limit: int = -1, offset: int = 0
 ) -> Module:
     """
     Like run_saved_query just with
@@ -120,10 +120,10 @@ async def search(session, *, xml: str) -> str:
 
     url = session.appURL / f"module/{mtype}/search"
 
-    print(f"{mtype=} {url=}")
+    # print(f"{mtype=} {url=}")
 
     async with session.session.post(url, data=xml) as response:
-        print(f"{response.request_info=}")
+        # print(f"{response.request_info=}")
         return await response.text()
 
 
