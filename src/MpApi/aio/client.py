@@ -130,7 +130,7 @@ async def search(session, *, xml: str) -> str:
 async def search2(session, *, query: Search) -> Module:
     query.validate(mode="search")
     txt = await search(session, xml=query.toString())
-    return Module(xml=txt)
+    return Module(xml=txt.encode())
 
 
 if __name__ == "__main__":

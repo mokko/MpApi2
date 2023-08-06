@@ -29,6 +29,8 @@ USAGE
 allowed_query_types = ["approval", "exhibit", "group", "loc", "query"]
 allowed_mtypes = ["Multimedia", "Object", "Person"]  # for query_maker
 
+import aiohttp
+from aiohttp.client_exceptions import ClientResponseError
 import asyncio
 import datetime
 import MpApi.aio.client as client
@@ -40,13 +42,13 @@ from typing import Iterator
 from pathlib import Path
 
 
+TIMEOUT = 600  # in seconds
+
+
 class Chunky:
-    def __init__(
-        self,
-        *,
-        chunk_size: int = 1000,
-    ) -> None:
+    def __init__(self, *, chunk_size: int = 1000) -> None:
         self.chunk_size = int(chunk_size)
+        print(f"asyncio timeout {TIMEOUT} sec = {int(TIMEOUT/60)} min")
 
     async def analyze_related(self, *, data: Module) -> set:
         """
@@ -57,7 +59,7 @@ class Chunky:
         )
         return {target for target in targetL}
 
-    async def apack_chunk(
+    async def apack_all_chunks(
         self,
         *,
         ID: int,
@@ -74,18 +76,21 @@ class Chunky:
         if not rno:
             print("Nothing to download!")
             return
-
         print(f"{rno=} {cmax=}")
-        coroL = list()
+
+        # chunkL = list()
+        chunk_coroL = list()
         for cno in range(cmax):  # cmax is 0-based
             cno += 1
-            print(f"***{cno=}")
-            coroL.append(
-                self.apack_per_chunk(
+            # async with asyncio.TaskGroup() as tg:
+            async with asyncio.timeout(TIMEOUT):
+                coro = self.apack_per_chunk(
                     cno=cno, ID=ID, job=job, qtype=qtype, session=session
                 )
-            )
-        await asyncio.gather(*coroL)
+            # chunk_coroL.append(asyncio.shield(coro))
+            await coro
+            # chunkL.append(tg.create_task(coro))
+        # await asyncio.gather(*chunk_coroL)
 
     async def apack_per_chunk(
         self, *, cno: int, ID: int, job: str, qtype: str, session: Session
@@ -94,34 +99,55 @@ class Chunky:
         # 1: 0 * 1000 = 0
         # 2: 1 * 1000 = 1000
         # simple chunck
-        print(f"Getting objects by qtype '{qtype}' /w offset {offset}... ")
+        print(f"getting {cno}-Objects by qtype '{qtype}' /w offset {offset}... ")
         chunk = await self.get_by_type(
             session=session, qtype=qtype, ID=ID, offset=offset
         )
-        print("done")
 
         chunk_fn = self._chunk_path(qtype=qtype, ID=ID, cno=cno, job=job, suffix=".xml")
-        print(f"We determined that {chunk_fn} is the right path for this chunk")
+        # print(f"{chunk_fn} is the right path for this chunk")
 
         related_targetsL = await self.analyze_related(data=chunk)
-        related_coroL = list()
-        for target in sorted(related_targetsL):
-            if target in ("Address"):
-                continue
+        # related_coroL = list()
+        related_coros = list()
+        try:
+            # async with asyncio.TaskGroup() as tg:
+            for target in sorted(related_targetsL):
+                if target in (
+                    "Address",
+                    "Registrar",
+                    "CollectionActivity",
+                    "Ownership",
+                ):
+                    print(f"... ignoring {target}")
+                    continue
 
-            print(f"getting {target}")
-            related_coroL.append(
-                self.get_related_items(data=chunk, session=session, target=target)
-            )
-        relatedL = await asyncio.gather(*related_coroL)
+                print(f"getting {cno}-{target} (related)")
+                # async with asyncio.timeout(TIMEOUT):
+
+                coro = self.get_related_items(
+                    data=chunk, session=session, target=target
+                )
+                related_coros.append(coro)
+        except ExceptionGroup as eg:
+            print("...attempting graceful shutdown (chunky.py:128)")
+            print(f"Exception {eg.exceptions}")
+            await session.close()
+
+        try:
+            relatedL = await asyncio.gather(*related_coros)
+        except ClientResponseError as cr:
+            print("____catching ClientResponseError, trying to continue")
+            print(cr)
+            # at this point we dont have relatedL, so we could try to return
+            return
 
         for relatedM in relatedL:
-            print(f"adding related {target} {len(relatedM)} items... ", end="")
+            print(f"adding related {target} {len(relatedM)} items... ")
             chunk += relatedM
-            print("done")
-        chunk.clean()
 
         print(f"zipping multi chunk {chunk_fn}...")
+        chunk.clean()
         chunk.toZip(path=chunk_fn)  # write zip file to disk
         print("done")
 
@@ -174,8 +200,10 @@ class Chunky:
             value=str(ID),
         )
         q.validate(mode="search")
-        print(str(q))
-        return await client.search2(session, query=q)
+        # print(str(q))
+        async with asyncio.timeout(TIMEOUT):
+            m = await client.search2(session, query=q)
+        return m
 
     async def get_related_items(self, *, session: Session, data: Module, target: str):
         """
@@ -203,7 +231,9 @@ class Chunky:
             )
             count += 1
         q.validate(mode="search")
-        relatedM = await client.search2(session, query=q)
+        q.toFile(path=f"debug.related.{target}.xml")
+        async with asyncio.timeout(TIMEOUT):
+            relatedM = await client.search2(session, query=q)
         return relatedM
 
     async def query_maker(

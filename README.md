@@ -4,20 +4,22 @@ API Specification: http://docs.zetcom.com/ws
 
 ## Utility / Modules
 * Provides a cli utility 'monk', plus the following modules
-* MpApi.aio.client
 * MpApi.aio.chunky
+* MpApi.aio.client
+* MpApi.aio.session
 
-Usage
+## Usage
 > monk -j jobname
 
 ## DSL Format
 conf:
 	chunkSize 1111 # comment
 ajob:
+	# 'apack' stands for asynchronous pack
 	apack group 1234 
 
 ## Requirements
-* Python 3.9
+* Python 3.11 for asyncio timeout as context manager and taskGroups
 * lxml
 * aiohttp
 * mpapi.module
@@ -27,9 +29,9 @@ For Testing
 * pytest 
 * pytest-asyncio
 
-# Version History
+## Version History
 * 20221228 - created
-* 20230804 - half of async working
+* 20230805 - version 0.0.2 minimal version working
 
-# See Also
+## See Also
 * https://github.com/mokko/MpApi

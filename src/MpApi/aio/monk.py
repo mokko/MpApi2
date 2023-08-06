@@ -48,16 +48,6 @@ from pathlib import Path
 import signal
 import sys
 
-# import sys
-# from typing import List, Any
-
-acceptLang = "de"
-maxConnections = 30  # simultaneous connections
-
-# I dont remember what all does;
-# in monk everything is chunked so chunk and getPack synonyms
-# chunks dont require filenames so the respective label in getPack gets ignored
-
 
 class ConfigError(Exception):
     pass
@@ -87,17 +77,23 @@ class Monk:
         """
 
         print(f"apack with {qtype} {ID}")
-        print(f"{self.chunk_size=}")
+        print(f"chunk_size {self.chunk_size} objects per chunk")
+        # chunk_size is set during run_job
         chnkr = Chunky(chunk_size=self.chunk_size)
 
         async with Session(user=self.user, pw=self.pw, baseURL=self.baseURL) as session:
             self.session = session
-            await chnkr.apack_chunk(
-                ID=ID,
-                job=self.job,
-                qtype=qtype,
-                session=session,
-            )
+            try:
+                await chnkr.apack_all_chunks(
+                    ID=ID,
+                    job=self.job,
+                    qtype=qtype,
+                    session=session,
+                )
+            except* Exception as e:
+                print("... attempting graceful shutdown (monk.py:94)")
+                await self.session.close()
+                raise e
 
     def run_job(self, *, job: str) -> None:
         """
@@ -165,24 +161,6 @@ class Monk:
     # helpers
     #
 
-    def _chunk_path(
-        self, *, qtype: str, ID: int, cno: int, suffix: str = ".xml"
-    ) -> Path:
-        """
-        Rerurn the a path for the current chunk. Relies on self.job being set
-        (which gets set in run_job).
-
-        Note: I was thinking of moving this to chunky, but I dont have Path there and
-        self.job.
-        """
-        if self.job is None:
-            raise TypeError("ERROR: No job name. Can't create project dir!")
-        date: str = datetime.datetime.today().strftime("%Y%m%d")
-        project_dir: Path = Path(self.job) / date
-        if not project_dir.is_dir():
-            Path.mkdir(project_dir, parents=True)
-        return project_dir / f"{qtype}-{ID}-chunk{cno}{suffix}"
-
     async def _close(self) -> None:
-        print("Attemptung graceful shutdown!")
+        print("...graceful shutdown!")
         await self.session.close()

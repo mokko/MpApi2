@@ -13,6 +13,9 @@ from types import TracebackType
 from typing import Any, Optional, Self, Type
 from yarl import URL
 
+MAX_CONNECTION = 30
+TIMEOUT = float(600)  # seconds
+
 
 class Session:
     """
@@ -22,16 +25,22 @@ class Session:
     see https://github.com/aio-libs/aiohttp/issues/6647
     """
 
-    def __init__(self, *, user: str, pw: str, baseURL: str) -> None:
+    def __init__(self, *, user: str, pw: str, baseURL: str, timeout: int = 300) -> None:
         self.user = user
         self.pw = pw
         self.baseURL = baseURL
         self.appURL = URL(baseURL) / "ria-ws/application"
+        self.timeout = TIMEOUT
 
     async def close(self) -> None:
-        """Not well tested!"""
-        await self.session.close()
-        del self.session
+        """Tested by now?"""
+        try:
+            self.session
+        except AttributeError:
+            pass
+        else:
+            await self.session.close()
+            del self.session
 
     async def get(self) -> Any:
         """
@@ -49,8 +58,18 @@ class Session:
             return self.session
 
     async def __aenter__(self) -> Self:  # params from init? ,
+        """
+        We could expose parameters like Accept-Language.
+        """
+        print(
+            f"setting aiohttp timeout to {TIMEOUT} and max connections to {MAX_CONNECTION}"
+        )
+        timeout = aiohttp.ClientTimeout(total=TIMEOUT, connect=float(10))
+        # timeout = aiohttp.ClientTimeout()
+        conn = aiohttp.TCPConnector(limit=MAX_CONNECTION)
         session = aiohttp.ClientSession(
             auth=aiohttp.BasicAuth(self.user, password=self.pw),
+            connector=conn,
             # accepts only absolute base_urls without path part
             # base_url=self.appURL
             headers={
@@ -59,6 +78,7 @@ class Session:
                 "Accept-Language": "de",
             },
             raise_for_status=True,
+            timeout=timeout,
         )
         self.session = session
         return self
@@ -69,7 +89,7 @@ class Session:
         exc: Optional[BaseException],
         tb: Optional[TracebackType],
     ):
-        await self.session.close()
+        await self.close()
 
 
 if __name__ == "__main__":
