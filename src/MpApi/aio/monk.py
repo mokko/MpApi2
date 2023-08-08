@@ -60,6 +60,9 @@ class Monk:
         self.baseURL = baseURL
         self.user = user
         self.pw = pw
+        self.exclude_modules = []
+        # related modules NOT to include in chunks
+        # specify in jobs.dsl
 
     async def apack(self, *, qtype: str, ID: int):
         """
@@ -77,9 +80,10 @@ class Monk:
         """
 
         print(f"apack with {qtype} {ID}")
+        # chunk_size and exclude_modules are set during run_job
         print(f"chunk_size {self.chunk_size} objects per chunk")
-        # chunk_size is set during run_job
-        chnkr = Chunky(chunk_size=self.chunk_size)
+        print(f"exclude modules {self.exclude_modules}")
+        chnkr = Chunky(chunk_size=self.chunk_size, exclude_modules=self.exclude_modules)
 
         async with Session(user=self.user, pw=self.pw, baseURL=self.baseURL) as session:
             self.session = session
@@ -132,11 +136,11 @@ class Monk:
                     if inside_conf:
                         if parts[0] == "chunkSize":
                             self.chunk_size = int(parts[1])
-                        # elif parts[0] == "modules":
-                        # chunker.modules = []
-                        # for each in parts[1:]:
-                        # each = each.strip().replace(",", "")
-                        # chunker.modules.append(each)
+                        elif parts[0] == "exclude_modules":
+                            for each in parts[1:]:
+                                each = each.strip().replace(",", "")
+                                print(f"exclude module {each}")
+                                self.exclude_modules.append(each.strip())
                         else:
                             print(
                                 f"WARNING: Ignoring unknown config value '{parts[0]}'"

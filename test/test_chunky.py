@@ -59,7 +59,7 @@ async def test_get_by_type():
         print(m)
 
 
-def test_chunk_path():
+def test_chunk_path():  # function, not coro
     chnkr = Chunky()
     path = chnkr._chunk_path(qtype="group", ID=182397, cno=1, suffix=".xml", job="test")
     print("{path=}")

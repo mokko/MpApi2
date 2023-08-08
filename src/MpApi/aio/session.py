@@ -13,7 +13,7 @@ from types import TracebackType
 from typing import Any, Optional, Self, Type
 from yarl import URL
 
-MAX_CONNECTION = 30
+MAX_CONNECTION = 100  # surprisingly, seems to result in aiohttp.client_exceptions.ServerTimeoutError: Connection
 TIMEOUT = float(600)  # seconds
 
 
@@ -30,7 +30,6 @@ class Session:
         self.pw = pw
         self.baseURL = baseURL
         self.appURL = URL(baseURL) / "ria-ws/application"
-        self.timeout = TIMEOUT
 
     async def close(self) -> None:
         """Tested by now?"""

@@ -41,14 +41,20 @@ from mpapi.search import Search
 from typing import Iterator
 from pathlib import Path
 
+chunk_sem_int = 3
+rel_sem_int = 7
 
-TIMEOUT = 600  # in seconds
+# TIMEOUT = 600  # seconds or None
 
 
 class Chunky:
-    def __init__(self, *, chunk_size: int = 1000) -> None:
+    def __init__(self, *, chunk_size: int = 1000, exclude_modules: list = []) -> None:
         self.chunk_size = int(chunk_size)
-        print(f"asyncio timeout {TIMEOUT} sec = {int(TIMEOUT/60)} min")
+        self.exclude_modules = exclude_modules
+        # print(f"asyncio timeout {TIMEOUT} sec = {int(TIMEOUT/60)} min")
+        print(f"Setting semaphores to {chunk_sem_int}/{rel_sem_int} (chunk,related)")
+        self.chunk_sem = asyncio.Semaphore(chunk_sem_int)
+        self.related_sem = asyncio.Semaphore(rel_sem_int)
 
     async def analyze_related(self, *, data: Module) -> set:
         """
@@ -79,18 +85,20 @@ class Chunky:
         print(f"{rno=} {cmax=}")
 
         # chunkL = list()
-        chunk_coroL = list()
+        chunkL = list()
         for cno in range(cmax):  # cmax is 0-based
             cno += 1
             # async with asyncio.TaskGroup() as tg:
-            async with asyncio.timeout(TIMEOUT):
-                coro = self.apack_per_chunk(
-                    cno=cno, ID=ID, job=job, qtype=qtype, session=session
-                )
-            # chunk_coroL.append(asyncio.shield(coro))
-            await coro
+            # async with asyncio.timeout(TIMEOUT):
+            coro = self.apack_per_chunk(
+                cno=cno, ID=ID, job=job, qtype=qtype, session=session
+            )
+            chunkL.append(asyncio.create_task(coro))
+            # await coro
             # chunkL.append(tg.create_task(coro))
-        # await asyncio.gather(*chunk_coroL)
+        for task in chunkL:
+            async with self.chunk_sem:
+                await task
 
     async def apack_per_chunk(
         self, *, cno: int, ID: int, job: str, qtype: str, session: Session
@@ -99,57 +107,36 @@ class Chunky:
         # 1: 0 * 1000 = 0
         # 2: 1 * 1000 = 1000
         # simple chunck
-        print(f"getting {cno}-Objects by qtype '{qtype}' /w offset {offset}... ")
-        chunk = await self.get_by_type(
-            session=session, qtype=qtype, ID=ID, offset=offset
-        )
+        print(f"   getting {cno}-Objects by qtype '{qtype}' /w offset {offset}...")
+        async with self.related_sem:
+            chunk = await self.get_by_type(
+                session=session, qtype=qtype, ID=ID, offset=offset
+            )
 
         chunk_fn = self._chunk_path(qtype=qtype, ID=ID, cno=cno, job=job, suffix=".xml")
         # print(f"{chunk_fn} is the right path for this chunk")
 
         related_targetsL = await self.analyze_related(data=chunk)
         # related_coroL = list()
-        related_coros = list()
-        try:
-            # async with asyncio.TaskGroup() as tg:
-            for target in sorted(related_targetsL):
-                if target in (
-                    "Address",
-                    "Registrar",
-                    "CollectionActivity",
-                    "Ownership",
-                ):
-                    print(f"... ignoring {target}")
-                    continue
+        relatedL1 = list()
+        # async with asyncio.TaskGroup() as tg:
+        for target in sorted(related_targetsL):
+            if target in self.exclude_modules:
+                print(f"   ignoring {cno}-{target}")
+                continue
 
-                print(f"getting {cno}-{target} (related)")
-                # async with asyncio.timeout(TIMEOUT):
-
-                coro = self.get_related_items(
-                    data=chunk, session=session, target=target
-                )
-                related_coros.append(coro)
-        except ExceptionGroup as eg:
-            print("...attempting graceful shutdown (chunky.py:128)")
-            print(f"Exception {eg.exceptions}")
-            await session.close()
-
-        try:
-            relatedL = await asyncio.gather(*related_coros)
-        except ClientResponseError as cr:
-            print("____catching ClientResponseError, trying to continue")
-            print(cr)
-            # at this point we dont have relatedL, so we could try to return
-            return
-
-        for relatedM in relatedL:
-            print(f"adding related {target} {len(relatedM)} items... ")
+            print(f"   getting {cno}-{target} (related)")
+            # async with asyncio.timeout(TIMEOUT):
+            coro = self.get_related_items(data=chunk, session=session, target=target)
+            relatedL1.append(asyncio.create_task(coro))
+        related_resL = await asyncio.gather(*relatedL1)
+        for relatedM in related_resL:
+            target = relatedM.extract_mtype()
+            print(f"   adding related {target} {len(relatedM)} items... ")
             chunk += relatedM
-
         print(f"zipping multi chunk {chunk_fn}...")
         chunk.clean()
         chunk.toZip(path=chunk_fn)  # write zip file to disk
-        print("done")
 
         print("validating multi chunk...", end="")
         chunk.validate()
@@ -201,8 +188,8 @@ class Chunky:
         )
         q.validate(mode="search")
         # print(str(q))
-        async with asyncio.timeout(TIMEOUT):
-            m = await client.search2(session, query=q)
+        # async with asyncio.timeout(TIMEOUT):
+        m = await client.search2(session, query=q)
         return m
 
     async def get_related_items(self, *, session: Session, data: Module, target: str):
@@ -230,9 +217,31 @@ class Chunky:
                 value=str(ID),
             )
             count += 1
+        if target == "Address":
+            # I wish I could exclude only the offending way to long field
+            q.addField(field="__id")
+            q.addField(field="__lastModifiedUser")
+            q.addField(field="__lastModified")
+            q.addField(field="__createdUser")
+            q.addField(field="__created")
+            q.addField(field="__orgUnit")
+            q.addField(field="AdrSortTxt")
+            q.addField(field="AdrCityTxt")
+            q.addField(field="AdrNotesClb")
+            q.addField(field="AdrOrganisationTxt")
+            q.addField(field="AdrPostcodeTxt")
+            q.addField(field="AdrStreetTxt")
+            q.addField(field="AdrCatEntryTxt")
+            q.addField(field="AdrCatNameTxt")
+            q.addField(field="AdrCatLocationTxt")
+            q.addField(field="AdrTypeVoc")
+            q.addField(field="AdrContactGrp")
+
         q.validate(mode="search")
         q.toFile(path=f"debug.related.{target}.xml")
-        async with asyncio.timeout(TIMEOUT):
+        # async with asyncio.timeout(TIMEOUT):
+
+        async with self.related_sem:
             relatedM = await client.search2(session, query=q)
         return relatedM
 

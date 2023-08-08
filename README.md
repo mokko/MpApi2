@@ -14,6 +14,8 @@ API Specification: http://docs.zetcom.com/ws
 ## DSL Format
 conf:
 	chunkSize 1111 # comment
+	exclude_modules ObjectGroup
+
 ajob:
 	# 'apack' stands for asynchronous pack
 	apack group 1234 
