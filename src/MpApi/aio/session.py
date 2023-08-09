@@ -32,20 +32,20 @@ class Session:
         *,
         user: str,
         pw: str,
-        connection_limit: int = 100,
+        max_connection: int = 100,
         timeout: float | None = None,
     ) -> None:
         """
         * user
         * pw
-        * connection_limit represents "total number simultaneous connections. If limit is
+        * max_connection represents "total number simultaneous connections. If limit is
           None the connector has no limit (default: 100)" (aiohttp.ClientSession.limit)
         * timeout controls "total number of seconds for the whole request"
           (aiohttp.ClientTimeout.total), None by default
         """
         self.user = user
         self.pw = pw
-        self.connection_limit = int(connection_limit)
+        self.max_connection = int(max_connection)
         self.timeout = timeout
 
     async def __aenter__(self) -> Self:  # params from init? ,
@@ -54,10 +54,10 @@ class Session:
         """
         if DEBUG:
             print(
-                f"DEBUG\nsetting aiohttp timeout to {self.timeout} seconds and max connections to {self.connection_limit}"
+                f"DEBUG\nsetting aiohttp timeout to {self.timeout} seconds and max connections to {self.max_connection}"
             )
         timeout = aiohttp.ClientTimeout(total=self.timeout)
-        conn = aiohttp.TCPConnector(limit=self.connection_limit)
+        conn = aiohttp.TCPConnector(limit=self.max_connection)
         session = aiohttp.ClientSession(
             auth=aiohttp.BasicAuth(self.user, password=self.pw),
             connector=conn,

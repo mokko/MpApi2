@@ -88,22 +88,21 @@ class Chunky:
             return
         print(f"{rno=} {cmax=}")
 
-        # chunkL = list()
         chunkL = list()
-        for cno in range(cmax):  # cmax is 0-based
-            cno += 1
+        for cno in range(1, cmax):  # cmax is 0-based
             # async with asyncio.TaskGroup() as tg:
             # async with asyncio.timeout(TIMEOUT):
             coro = self.apack_per_chunk(
-                cno=cno, ID=ID, job=job, qtype=qtype, session=session
+                session,
+                cno=cno,
+                ID=ID,
+                job=job,
+                qtype=qtype,
             )
             chunkL.append(asyncio.create_task(coro))
-            # await coro
             # chunkL.append(tg.create_task(coro))
-        await asyncio.gather(*chunkL)
-        # for task in chunkL:
         # async with self.chunk_sem:
-        # await task
+        await asyncio.gather(*chunkL)
 
     async def apack_per_chunk(
         self,

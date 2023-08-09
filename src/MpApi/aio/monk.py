@@ -89,7 +89,7 @@ class Monk:
             exclude_modules=self.exclude_modules,
         )
 
-        async with Session(user=self.user, pw=self.pw) as session:
+        async with Session(user=self.user, pw=self.pw, max_connection=10) as session:
             self.session = session
             try:
                 await chnkr.apack_all_chunks(
@@ -99,7 +99,7 @@ class Monk:
                     qtype=qtype,
                 )
             except* Exception as e:
-                print("... attempting graceful shutdown (monk.py:98)")
+                print("... attempting graceful shutdown (monk.py:102)")
                 await self.session.close()
                 raise e
 
@@ -170,5 +170,5 @@ class Monk:
     #
 
     async def _close(self) -> None:
-        print("...graceful shutdown (monk.py 169)!")
+        print("...graceful shutdown (monk.py 173)!")
         await self.session.close()
