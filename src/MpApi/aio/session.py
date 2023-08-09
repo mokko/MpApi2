@@ -54,7 +54,7 @@ class Session:
         """
         if DEBUG:
             print(
-                f"\nsetting aiohttp timeout to {self.timeout} and max connections to {self.connection_limit}"
+                f"DEBUG\nsetting aiohttp timeout to {self.timeout} seconds and max connections to {self.connection_limit}"
             )
         timeout = aiohttp.ClientTimeout(total=self.timeout)
         conn = aiohttp.TCPConnector(limit=self.connection_limit)

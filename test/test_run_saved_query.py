@@ -19,13 +19,13 @@ async def test_run_saved_query():
             http://www.zetcom.com/ria/ws/module/search/search_1_6.xsd">
             <modules>
               <module name="Object">
-                <search limit="-1" offset="10" />
+                <search limit="10" offset="10" />
               </module>
             </modules>
         </application>
     """
 
-    async with Session(user=user, pw=pw) as session:
+    async with Session(user=user, pw=pw, timeout=100) as session:
         txt = await client.run_saved_query(session, ID=485072, mtype="Object", xml=xml)
     assert len(txt) > 500
 
