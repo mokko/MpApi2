@@ -102,7 +102,12 @@ class Chunky:
             chunkL.append(asyncio.create_task(coro))
             # chunkL.append(tg.create_task(coro))
         # async with self.chunk_sem:
-        await asyncio.gather(*chunkL)
+        try:
+            await asyncio.gather(*chunkL)
+        except* Exception as e:
+            print("... attempting graceful shutdown (chunky.py:108)")
+            await session.close()
+            raise e
 
     async def apack_per_chunk(
         self,
