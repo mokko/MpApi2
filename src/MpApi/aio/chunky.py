@@ -13,8 +13,8 @@ USAGE
     from MpApi.aio.chunky import Chunky
     from MpApi.aio.session import Session
     
-    chnkr = Chunky()
-    async with Session(user=user,pw=pw, baseURL=baseURL):
+    chnkr = Chunky(baseURL=baseURL)
+    async with Session(user=user,pw=pw):
         for chunk in chnkr.get_by_type(qtype=qtype, ID=ID):
             chunk.toZip(path="file.xml.zip")
 
@@ -31,9 +31,11 @@ allowed_mtypes = ["Multimedia", "Object", "Person"]  # for query_maker
 
 import aiohttp
 from aiohttp.client_exceptions import ClientResponseError
+from aiohttp import ClientSession
+
 import asyncio
 import datetime
-import MpApi.aio.client as client
+from MpApi.aio.client import Client
 from MpApi.aio.session import Session
 from mpapi.constants import NSMAP
 from mpapi.module import Module
@@ -41,20 +43,22 @@ from mpapi.search import Search
 from typing import Iterator
 from pathlib import Path
 
-chunk_sem_int = 3
-rel_sem_int = 7
-
-# TIMEOUT = 600  # seconds or None
+# chunk_sem_int = 3
+# rel_sem_int = 7
 
 
 class Chunky:
-    def __init__(self, *, chunk_size: int = 1000, exclude_modules: list = []) -> None:
+    def __init__(
+        self, *, baseURL: str, chunk_size: int = 1000, exclude_modules: list = []
+    ) -> None:
+        self.baseURL = baseURL
         self.chunk_size = int(chunk_size)
+        self.client = Client(baseURL=baseURL)
         self.exclude_modules = exclude_modules
         # print(f"asyncio timeout {TIMEOUT} sec = {int(TIMEOUT/60)} min")
-        print(f"Setting semaphores to {chunk_sem_int}/{rel_sem_int} (chunk,related)")
-        self.chunk_sem = asyncio.Semaphore(chunk_sem_int)
-        self.related_sem = asyncio.Semaphore(rel_sem_int)
+        # print(f"Setting semaphores to {chunk_sem_int}/{rel_sem_int} (chunk,related)")
+        # self.chunk_sem = asyncio.Semaphore(chunk_sem_int)
+        # self.related_sem = asyncio.Semaphore(rel_sem_int)
 
     async def analyze_related(self, *, data: Module) -> set:
         """
@@ -67,17 +71,17 @@ class Chunky:
 
     async def apack_all_chunks(
         self,
+        session: ClientSession,
         *,
         ID: int,
         job: str,
         qtype: str,
-        session: Session,
     ) -> None:
 
         # no of results; chunks needed for results
         # target is always Object?
         rno, cmax = await self.count_results(
-            session=session, qtype=qtype, target="Object", ID=ID
+            session, qtype=qtype, target="Object", ID=ID
         )
         if not rno:
             print("Nothing to download!")
@@ -96,22 +100,26 @@ class Chunky:
             chunkL.append(asyncio.create_task(coro))
             # await coro
             # chunkL.append(tg.create_task(coro))
-        for task in chunkL:
-            async with self.chunk_sem:
-                await task
+        await asyncio.gather(*chunkL)
+        # for task in chunkL:
+        # async with self.chunk_sem:
+        # await task
 
     async def apack_per_chunk(
-        self, *, cno: int, ID: int, job: str, qtype: str, session: Session
+        self,
+        session: ClientSession,
+        *,
+        cno: int,
+        ID: int,
+        job: str,
+        qtype: str,
     ) -> None:
-        offset = int(cno - 1) * self.chunk_size  # not sure about +1
+        offset = int(cno - 1) * self.chunk_size
         # 1: 0 * 1000 = 0
         # 2: 1 * 1000 = 1000
-        # simple chunck
         print(f"   getting {cno}-Objects by qtype '{qtype}' /w offset {offset}...")
-        async with self.related_sem:
-            chunk = await self.get_by_type(
-                session=session, qtype=qtype, ID=ID, offset=offset
-            )
+        # async with self.related_sem:
+        chunk = await self.get_by_type(session, qtype=qtype, ID=ID, offset=offset)
 
         chunk_fn = self._chunk_path(qtype=qtype, ID=ID, cno=cno, job=job, suffix=".xml")
         # print(f"{chunk_fn} is the right path for this chunk")
@@ -127,7 +135,7 @@ class Chunky:
 
             print(f"   getting {cno}-{target} (related)")
             # async with asyncio.timeout(TIMEOUT):
-            coro = self.get_related_items(data=chunk, session=session, target=target)
+            coro = self.get_related_items(session, data=chunk, target=target)
             relatedL1.append(asyncio.create_task(coro))
         related_resL = await asyncio.gather(*relatedL1)
         for relatedM in related_resL:
@@ -143,7 +151,7 @@ class Chunky:
         print("done")
 
     async def count_results(
-        self, *, session: Session, qtype: str, target: str, ID: int
+        self, session: ClientSession, *, qtype: str, target: str, ID: int
     ) -> int:
         """
         Return the number of results for a given query. The query is described by query
@@ -154,17 +162,17 @@ class Chunky:
         # print(f"{str(q)}")
         q.addField(field="__id")
         q.validate(mode="search")
-        m = await client.search2(session, query=q)
+        m = await self.client.search2(session, query=q)
         rno = m.totalSize(module=target)
         chnk_no = int(rno / self.chunk_size) + 1  # no of chunks
         return rno, chnk_no
 
     async def get_by_type(
         self,
+        session: ClientSession,
         *,
         ID: int,
         qtype: str,
-        session: Session,
         offset: int = 0,
     ) -> Module:
         """
@@ -189,10 +197,12 @@ class Chunky:
         q.validate(mode="search")
         # print(str(q))
         # async with asyncio.timeout(TIMEOUT):
-        m = await client.search2(session, query=q)
+        m = await self.client.search2(session, query=q)
         return m
 
-    async def get_related_items(self, *, session: Session, data: Module, target: str):
+    async def get_related_items(
+        self, session: ClientSession, *, data: Module, target: str
+    ):
         """
         Given some object data, query for related records. Related records are
         those linked to from inside the object data. Return a new module of target type.
@@ -241,18 +251,18 @@ class Chunky:
         q.toFile(path=f"debug.related.{target}.xml")
         # async with asyncio.timeout(TIMEOUT):
 
-        async with self.related_sem:
-            relatedM = await client.search2(session, query=q)
+        # async with self.related_sem:
+        relatedM = await self.client.search2(session, query=q)
         return relatedM
 
     async def query_maker(
         self, *, ID, qtype: str, target: str, offset: int = 0, limit: int = -1
     ):
         """
-        Let's have a factory that makes all Search objects we need.
+        Let's have a factory that makes all Search objects we need in chunky.py.
 
-        query type: approval, exhibit, group, loc
-        mtype/module type: Object, Person, Multimedia ...
+        q(uery)type: approval, exhibit, group, loc
+        mtype: Object, Person, Multimedia ...
 
         We start with a group that corresponds with the query type: approval group,
         exhibit, [object] group, loc. It's a group of objects defined by a common trait /
@@ -280,10 +290,10 @@ class Chunky:
         """
 
         if qtype not in allowed_query_types:
-            raise ValueError("Query type not allowed: {qtype=}")
+            raise ValueError(f"Query type not allowed: {qtype=}")
 
         if target not in allowed_mtypes:
-            raise ValueError("Module type not allowed: {target=}")
+            raise ValueError(f"Module type not allowed: {target=}")
 
         # "Registrar": "RegExhibitionRef.__id",
 

@@ -1,13 +1,16 @@
 import aiohttp
 import asyncio
 from MpApi.aio.session import Session
-import MpApi.aio.client as client
+from MpApi.aio.client import Client
 from mpapi.constants import get_credentials
+import pytest
 
 user, pw, baseURL = get_credentials()
+client = Client(baseURL=baseURL)
 
 
-def test_run_saved_query():
+@pytest.mark.asyncio
+async def test_run_saved_query():
     xml = """
         <application 
             xmlns="http://www.zetcom.com/ria/ws/module/search" 
@@ -22,22 +25,15 @@ def test_run_saved_query():
         </application>
     """
 
-    async def saved_query():
-        async with Session(user=user, pw=pw, baseURL=baseURL) as session:
-            txt = await client.run_saved_query(
-                session, ID=485072, mtype="Object", xml=xml
-            )
-            assert len(txt) > 500
-
-    asyncio.run(saved_query())
+    async with Session(user=user, pw=pw) as session:
+        txt = await client.run_saved_query(session, ID=485072, mtype="Object", xml=xml)
+    assert len(txt) > 500
 
 
-def test_run_saved_query2():
-    async def saved_query():
-        async with Session(user=user, pw=pw, baseURL=baseURL) as session:
-            m = await client.run_saved_query2(
-                session, ID=485072, mtype="Object", limit=12, offset=0
-            )
-
+@pytest.mark.asyncio
+async def test_run_saved_query2():
+    async with Session(user=user, pw=pw) as session:
+        m = await client.run_saved_query2(
+            session, ID=485072, mtype="Object", limit=12, offset=0
+        )
     assert m
-    asyncio.run(saved_query())

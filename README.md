@@ -33,7 +33,7 @@ For Testing
 
 ## Version History
 * 20221228 - created
-* 20230805 - version 0.0.2 minimal version working
+* 20230805 - version 0.0.2 minimal working version 
 
 ## See Also
 * https://github.com/mokko/MpApi

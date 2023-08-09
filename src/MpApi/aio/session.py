@@ -1,10 +1,13 @@
 """
-from MpApi.aio.session import Session
+This is an experimental version of session that 
+- actually returns the ClientSession and 
+- doesn't contain baseURL
+- provides only context manager
+
+from MpApi.aio.session2 import Session
     with Session(user=user, pw=pw) as session:
         print (session)
 
-    s = Session(user=user,pw=pw, baseURL=baseURL)
-    session = s.get_session()
 """
 
 import aiohttp
@@ -13,8 +16,7 @@ from types import TracebackType
 from typing import Any, Optional, Self, Type
 from yarl import URL
 
-MAX_CONNECTION = 100  # surprisingly, seems to result in aiohttp.client_exceptions.ServerTimeoutError: Connection
-TIMEOUT = float(600)  # seconds
+DEBUG = True
 
 
 class Session:
@@ -25,47 +27,37 @@ class Session:
     see https://github.com/aio-libs/aiohttp/issues/6647
     """
 
-    def __init__(self, *, user: str, pw: str, baseURL: str, timeout: int = 300) -> None:
+    def __init__(
+        self,
+        *,
+        user: str,
+        pw: str,
+        connection_limit: int = 100,
+        timeout: float | None = None,
+    ) -> None:
+        """
+        * user
+        * pw
+        * connection_limit represents "total number simultaneous connections. If limit is
+          None the connector has no limit (default: 100)" (aiohttp.ClientSession.limit)
+        * timeout controls "total number of seconds for the whole request"
+          (aiohttp.ClientTimeout.total), None by default
+        """
         self.user = user
         self.pw = pw
-        self.baseURL = baseURL
-        self.appURL = URL(baseURL) / "ria-ws/application"
-
-    async def close(self) -> None:
-        """Tested by now?"""
-        try:
-            self.session
-        except AttributeError:
-            pass
-        else:
-            await self.session.close()
-            del self.session
-
-    async def get(self) -> Any:
-        """
-        We want access to the session. This coroutine provides two ways to get to the session.
-        (a) it makes sure it's available at self.session
-        (b) it also returns it directly.
-
-        Use close() to close the session.
-        """
-        try:
-            self.session
-        except:
-            await self.__aenter__()
-        finally:
-            return self.session
+        self.connection_limit = int(connection_limit)
+        self.timeout = timeout
 
     async def __aenter__(self) -> Self:  # params from init? ,
         """
         We could expose parameters like Accept-Language.
         """
-        print(
-            f"setting aiohttp timeout to {TIMEOUT} and max connections to {MAX_CONNECTION}"
-        )
-        timeout = aiohttp.ClientTimeout(total=TIMEOUT, connect=float(10))
-        # timeout = aiohttp.ClientTimeout()
-        conn = aiohttp.TCPConnector(limit=MAX_CONNECTION)
+        if DEBUG:
+            print(
+                f"\nsetting aiohttp timeout to {self.timeout} and max connections to {self.connection_limit}"
+            )
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        conn = aiohttp.TCPConnector(limit=self.connection_limit)
         session = aiohttp.ClientSession(
             auth=aiohttp.BasicAuth(self.user, password=self.pw),
             connector=conn,
@@ -80,7 +72,7 @@ class Session:
             timeout=timeout,
         )
         self.session = session
-        return self
+        return session
 
     async def __aexit__(
         self,
@@ -88,17 +80,8 @@ class Session:
         exc: Optional[BaseException],
         tb: Optional[TracebackType],
     ):
-        await self.close()
+        await self.session.close()
 
 
 if __name__ == "__main__":
-    from mpapi.constants import get_credentials
-    from MpApi.aio.session import Session
-
-    user, pw, baseURL = get_credentials()
-
-    async def main() -> None:
-        async with Session(user=user, pw=pw) as session:
-            print(session)
-
-    asyncio.run(main())
+    pass

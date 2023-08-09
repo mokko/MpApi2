@@ -13,10 +13,10 @@ user, pw, baseURL = get_credentials()
 
 @pytest.mark.asyncio
 async def test_results():
-    async with Session(user=user, pw=pw, baseURL=baseURL) as session:
+    async with Session(user=user, pw=pw) as session:
         # print (f"{session=}")
         # print (f"{session.appURL}")
-        chnkr = Chunky()
+        chnkr = Chunky(baseURL=baseURL)
         rno, cno = await chnkr.count_results(
             session=session, qtype="group", target="Object", ID=182397
         )
@@ -26,7 +26,7 @@ async def test_results():
 
 @pytest.mark.asyncio
 async def test_related():
-    chnkr = Chunky()
+    chnkr = Chunky(baseURL=baseURL)
     m = Module(file="getItem-Object590013.xml")
     results_set = await chnkr.analyze_related(data=m)
     assert results_set == {
@@ -43,7 +43,7 @@ async def test_related():
 
 @pytest.mark.asyncio
 async def test_query_maker():
-    chnkr = Chunky()
+    chnkr = Chunky(baseURL=baseURL)
     q = await chnkr.query_maker(
         qtype="group", target="Object", ID=12345, offset=100, limit=chnkr.chunk_size
     )
@@ -52,15 +52,15 @@ async def test_query_maker():
 
 @pytest.mark.asyncio
 async def test_get_by_type():
-    chnkr = Chunky()
-    async with Session(user=user, pw=pw, baseURL=baseURL) as session:
+    chnkr = Chunky(baseURL=baseURL)
+    async with Session(user=user, pw=pw) as session:
         m = await chnkr.get_by_type(session=session, qtype="group", ID=182397)
         assert m
         print(m)
 
 
 def test_chunk_path():  # function, not coro
-    chnkr = Chunky()
+    chnkr = Chunky(baseURL=baseURL)
     path = chnkr._chunk_path(qtype="group", ID=182397, cno=1, suffix=".xml", job="test")
     print("{path=}")
     date: str = datetime.datetime.today().strftime("%Y%m%d")

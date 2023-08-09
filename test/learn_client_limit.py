@@ -3,14 +3,14 @@ import asyncio
 from mpapi.search import Search
 
 # from mpapi.module import Module
-from MpApi.aio.session2 import Session
-from MpApi.aio.client2 import Client2
+from MpApi.aio.session import Session
+from MpApi.aio.client import Client
 from mpapi.constants import get_credentials
 import pytest
 from yarl import URL
 
 user, pw, baseURL = get_credentials()
-client = Client2(baseURL=baseURL)
+client = Client(baseURL=baseURL)
 
 #
 # let's try out limitting the session
