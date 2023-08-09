@@ -80,10 +80,7 @@ class Chunky:
         self.client = Client(baseURL=baseURL)
         self.exclude_modules = exclude_modules
         self._semaphore = semaphore
-        # print(f"asyncio timeout {TIMEOUT} sec = {int(TIMEOUT/60)} min")
-        # print(f"Setting semaphores to {chunk_sem_int}/{rel_sem_int} (chunk,related)")
-        # self.chunk_sem = asyncio.Semaphore(chunk_sem_int)
-        # self.related_sem = asyncio.Semaphore(rel_sem_int)
+        print(f"semaphore: {self._semaphore}")
 
     async def analyze_related(self, *, data: Module) -> set:
         """
@@ -144,16 +141,17 @@ class Chunky:
         qtype: str,
         sem: asyncio.Semaphore,
     ) -> None:
-        offset = int(cno - 1) * self.chunk_size
-        # 1: 0 * 1000 = 0
-        # 2: 1 * 1000 = 1000
+        print(f"CHUNK {cno}")
         chunk_fn = self._chunk_path(qtype=qtype, ID=ID, cno=cno, job=job, suffix=".xml")
         chunk_zip = chunk_fn.with_suffix(".zip")
         if chunk_zip.exists():
             print(f"Chunk {chunk_zip} exists already")
             return
-
         print(f"   getting {cno}-Objects by qtype '{qtype}' /w offset {offset}...")
+
+        # 1: 0 * 1000 = 0
+        # 2: 1 * 1000 = 1000
+        offset = int(cno - 1) * self.chunk_size
         async with sem:
             chunk = await self.get_by_type(session, qtype=qtype, ID=ID, offset=offset)
 

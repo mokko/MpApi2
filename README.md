@@ -23,7 +23,7 @@ ajob:
 ```
 
 ## Requirements
-* Python 3.11 for asyncio timeout as context manager and taskGroups
+* Python 3.11 for asyncio taskGroups
 * lxml
 * aiohttp
 * mpapi.module
