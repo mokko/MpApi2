@@ -122,16 +122,17 @@ class Chunky:
             coro = self.apack_per_chunk(
                 session, cno=cno, ID=ID, job=job, qtype=qtype, sem=sem
             )
-            await coro  # one at a time
+            try:
+                await coro  # one at a time
+            except* Exception as e:
+                print("... attempting graceful shutdown (chunky.py:109)")
+                await session.close()
+                raise e
             # tg.create_task(coro)
             # asyncio.sleep(20) # secs
             # ONLY ONE CHUNK AT A TIME
             # try:
             #    await asyncio.create_task(coro)
-            # except* Exception as e:
-            #    print("... attempting graceful shutdown (chunky.py:109)")
-            #    await session.close()
-            #    raise e
 
     async def apack_per_chunk(
         self,
