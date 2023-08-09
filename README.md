@@ -12,13 +12,13 @@ API Specification: http://docs.zetcom.com/ws
 > monk -j jobname
 
 ## DSL Format
-conf:
-	chunkSize 1111 # comment
-	exclude_modules ObjectGroup
-
-ajob:
-	# 'apack' stands for asynchronous pack
-	apack group 1234 
+>conf:
+>	chunkSize 1111 # comment
+>	exclude_modules ObjectGroup
+>
+>ajob:
+>	# 'apack' stands for asynchronous pack
+>	apack group 1234 
 
 ## Requirements
 * Python 3.11 for asyncio timeout as context manager and taskGroups
