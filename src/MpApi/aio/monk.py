@@ -83,19 +83,23 @@ class Monk:
         # chunk_size and exclude_modules are set during run_job
         print(f"chunk_size {self.chunk_size} objects per chunk")
         print(f"exclude modules {self.exclude_modules}")
-        chnkr = Chunky(chunk_size=self.chunk_size, exclude_modules=self.exclude_modules)
+        chnkr = Chunky(
+            baseURL=self.baseURL,
+            chunk_size=self.chunk_size,
+            exclude_modules=self.exclude_modules,
+        )
 
-        async with Session(user=self.user, pw=self.pw, baseURL=self.baseURL) as session:
+        async with Session(user=self.user, pw=self.pw) as session:
             self.session = session
             try:
                 await chnkr.apack_all_chunks(
+                    session,
                     ID=ID,
                     job=self.job,
                     qtype=qtype,
-                    session=session,
                 )
             except* Exception as e:
-                print("... attempting graceful shutdown (monk.py:94)")
+                print("... attempting graceful shutdown (monk.py:98)")
                 await self.session.close()
                 raise e
 
@@ -166,5 +170,5 @@ class Monk:
     #
 
     async def _close(self) -> None:
-        print("...graceful shutdown!")
+        print("...graceful shutdown (monk.py 169)!")
         await self.session.close()
