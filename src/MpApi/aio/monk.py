@@ -89,7 +89,7 @@ class Monk:
             exclude_modules=self.exclude_modules,
         )
 
-        async with Session(user=self.user, pw=self.pw, max_connection=10) as session:
+        async with Session(user=self.user, pw=self.pw, max_connection=100) as session:
             try:
                 await chnkr.apack_all_chunks(
                     session,

@@ -44,16 +44,17 @@ ETparser = etree.XMLParser(remove_blank_text=True)
 aiohttp seems to accept baseURL only a host. Path parts after the host get ignored or overwritten
 """
 
+DEBUG = True
+
 
 class Counter:
     def __init__(self):
         self._count = 0
-        self.debug = 1
 
     async def __aenter__(self) -> None:  # params from init? ,
         self._count += 1
-        if self.debug:
-            print(f"DEBUG: {self._count} connection count")
+        if DEBUG:
+            print(f"DEBUG-client: {self._count} connections")
 
     async def __aexit__(
         self,
@@ -62,8 +63,8 @@ class Counter:
         tb: Optional[TracebackType],
     ):
         self._count -= 1
-        if self.debug:
-            print(f"DEBUG: {self._count} connection count")
+        if DEBUG:
+            print(f"DEBUG-client: {self._count} connections")
 
 
 class Client:

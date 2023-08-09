@@ -32,7 +32,6 @@ allowed_mtypes = ["Multimedia", "Object", "Person"]  # for query_maker
 import aiohttp
 from aiohttp.client_exceptions import ClientResponseError
 from aiohttp import ClientSession
-
 import asyncio
 import datetime
 from MpApi.aio.client import Client
@@ -46,15 +45,41 @@ from pathlib import Path
 # chunk_sem_int = 3
 # rel_sem_int = 7
 
+# https://stackoverflow.com/questions/75204560/consuming-taskgroup-response
+class GatheringTaskGroup(asyncio.TaskGroup):
+    def __init__(self):
+        super().__init__()
+        self.__tasks = []
+
+    def create_task(self, coro, *, name=None, context=None):
+        task = super().create_task(coro, name=name, context=context)
+        self.__tasks.append(task)
+        return task
+
+    def results(self):
+        return [task.result() for task in self.__tasks]
+
 
 class Chunky:
     def __init__(
-        self, *, baseURL: str, chunk_size: int = 1000, exclude_modules: list = []
+        self,
+        *,
+        baseURL: str,
+        chunk_size: int = 1000,
+        exclude_modules: list = [],
+        semaphore: int = 100,
     ) -> None:
+        """
+        baseURL:          does not include "ria-ws/application"
+        chunk_size:       number of object items per chunk, defaults to 1000
+        excludes_modules: list of related modules that should not be included, e.g. ObjectGroup
+        semaphore:        semaphore's initial value, our default is 100, Python's 1.
+        """
         self.baseURL = baseURL
         self.chunk_size = int(chunk_size)
         self.client = Client(baseURL=baseURL)
         self.exclude_modules = exclude_modules
+        self._semaphore = semaphore
         # print(f"asyncio timeout {TIMEOUT} sec = {int(TIMEOUT/60)} min")
         # print(f"Setting semaphores to {chunk_sem_int}/{rel_sem_int} (chunk,related)")
         # self.chunk_sem = asyncio.Semaphore(chunk_sem_int)
@@ -88,26 +113,25 @@ class Chunky:
             return
         print(f"{rno=} {cmax=}")
 
-        chunkL = list()
-        for cno in range(1, cmax):  # cmax is 0-based
+        sem = asyncio.Semaphore(self._semaphore)  # zero-based
+        # chunk_tasks = list()
+        # async with sem:
+        # async with asyncio.TaskGroup() as tg:
+        for cno in range(1, cmax + 1):
             # async with asyncio.TaskGroup() as tg:
-            # async with asyncio.timeout(TIMEOUT):
             coro = self.apack_per_chunk(
-                session,
-                cno=cno,
-                ID=ID,
-                job=job,
-                qtype=qtype,
+                session, cno=cno, ID=ID, job=job, qtype=qtype, sem=sem
             )
-            chunkL.append(asyncio.create_task(coro))
-            # chunkL.append(tg.create_task(coro))
-        # async with self.chunk_sem:
-        try:
-            await asyncio.gather(*chunkL)
-        except* Exception as e:
-            print("... attempting graceful shutdown (chunky.py:108)")
-            await session.close()
-            raise e
+            await coro  # one at a time
+            # tg.create_task(coro)
+            # asyncio.sleep(20) # secs
+            # ONLY ONE CHUNK AT A TIME
+            # try:
+            #    await asyncio.create_task(coro)
+            # except* Exception as e:
+            #    print("... attempting graceful shutdown (chunky.py:109)")
+            #    await session.close()
+            #    raise e
 
     async def apack_per_chunk(
         self,
@@ -117,36 +141,46 @@ class Chunky:
         ID: int,
         job: str,
         qtype: str,
+        sem: asyncio.Semaphore,
     ) -> None:
         offset = int(cno - 1) * self.chunk_size
         # 1: 0 * 1000 = 0
         # 2: 1 * 1000 = 1000
-        print(f"   getting {cno}-Objects by qtype '{qtype}' /w offset {offset}...")
-        # async with self.related_sem:
-        chunk = await self.get_by_type(session, qtype=qtype, ID=ID, offset=offset)
-
         chunk_fn = self._chunk_path(qtype=qtype, ID=ID, cno=cno, job=job, suffix=".xml")
-        # print(f"{chunk_fn} is the right path for this chunk")
+        chunk_zip = chunk_fn.with_suffix(".zip")
+        if chunk_zip.exists():
+            print(f"Chunk {chunk_zip} exists already")
+            return
 
-        related_targetsL = await self.analyze_related(data=chunk)
-        # related_coroL = list()
-        relatedL1 = list()
-        # async with asyncio.TaskGroup() as tg:
-        for target in sorted(related_targetsL):
+        print(f"   getting {cno}-Objects by qtype '{qtype}' /w offset {offset}...")
+        async with sem:
+            chunk = await self.get_by_type(session, qtype=qtype, ID=ID, offset=offset)
+
+        rel_targets = await self.analyze_related(data=chunk)
+        rel_tasks = list()
+        for target in sorted(rel_targets):
             if target in self.exclude_modules:
                 print(f"   ignoring {cno}-{target}")
                 continue
 
             print(f"   getting {cno}-{target} (related)")
-            # async with asyncio.timeout(TIMEOUT):
-            coro = self.get_related_items(session, data=chunk, target=target)
-            relatedL1.append(asyncio.create_task(coro))
-        related_resL = await asyncio.gather(*relatedL1)
-        for relatedM in related_resL:
-            target = relatedM.extract_mtype()
-            print(f"   adding related {target} {len(relatedM)} items... ")
-            chunk += relatedM
-        print(f"zipping multi chunk {chunk_fn}...")
+            coro = self.get_related_items(session, data=chunk, sem=sem, target=target)
+            rel_tasks.append(asyncio.create_task(coro))
+        try:
+            async with sem:
+                results = await asyncio.gather(*rel_tasks)
+        except* Exception as e:
+            print("... gentle closure")
+            session.close()
+            raise e
+
+        for resultM in results:
+            # asyncio.sleep(20) # secs
+            target = resultM.extract_mtype()
+            print(f"   adding related {target} {len(resultM)} items... ")
+            chunk += resultM
+
+        print(f"zipping multi chunk {chunk_zip}...")
         chunk.clean()
         chunk.toZip(path=chunk_fn)  # write zip file to disk
 
@@ -205,7 +239,12 @@ class Chunky:
         return m
 
     async def get_related_items(
-        self, session: ClientSession, *, data: Module, target: str
+        self,
+        session: ClientSession,
+        *,
+        data: Module,
+        sem: asyncio.Semaphore,
+        target: str,
     ):
         """
         Given some object data, query for related records. Related records are
@@ -256,7 +295,8 @@ class Chunky:
         # async with asyncio.timeout(TIMEOUT):
 
         # async with self.related_sem:
-        relatedM = await self.client.search2(session, query=q)
+        async with sem:
+            relatedM = await self.client.search2(session, query=q)
         return relatedM
 
     async def query_maker(

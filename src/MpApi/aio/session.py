@@ -53,9 +53,9 @@ class Session:
         We could expose parameters like Accept-Language.
         """
         if DEBUG:
-            print(
-                f"DEBUG\nsetting aiohttp timeout to {self.timeout} seconds and max connections to {self.max_connection}"
-            )
+            print("DEBUG-session:")
+            print(f"   aiohttp timeout {self.timeout} seconds")
+            print(f"   max connections {self.max_connection}")
         timeout = aiohttp.ClientTimeout(total=self.timeout)
         conn = aiohttp.TCPConnector(limit=self.max_connection)
         session = aiohttp.ClientSession(
