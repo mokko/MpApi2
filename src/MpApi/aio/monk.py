@@ -90,7 +90,6 @@ class Monk:
         )
 
         async with Session(user=self.user, pw=self.pw, max_connection=10) as session:
-            self.session = session
             try:
                 await chnkr.apack_all_chunks(
                     session,
@@ -99,8 +98,8 @@ class Monk:
                     qtype=qtype,
                 )
             except* Exception as e:
-                print("... attempting graceful shutdown (monk.py:102)")
-                await self.session.close()
+                print("... attempting graceful shutdown (monk.py:101)")
+                await session.close()
                 raise e
 
     def run_job(self, *, job: str) -> None:
