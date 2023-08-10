@@ -87,6 +87,7 @@ class Monk:
             baseURL=self.baseURL,
             chunk_size=self.chunk_size,
             exclude_modules=self.exclude_modules,
+            semaphore=10,
         )
 
         async with Session(user=self.user, pw=self.pw, max_connection=100) as session:

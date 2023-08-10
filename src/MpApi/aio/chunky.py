@@ -33,7 +33,9 @@ import aiohttp
 from aiohttp.client_exceptions import ClientResponseError
 from aiohttp import ClientSession
 import asyncio
+from collections import deque
 import datetime
+import itertools
 from MpApi.aio.client import Client
 from MpApi.aio.session import Session
 from mpapi.constants import NSMAP
@@ -110,26 +112,28 @@ class Chunky:
             return
         print(f"{rno=} {cmax=}")
 
-        sem = asyncio.Semaphore(self._semaphore)  # zero-based
-        # chunk_tasks = list()
-        # async with sem:
-        # async with asyncio.TaskGroup() as tg:
+        sem = asyncio.Semaphore(self._semaphore)  # zero-based?
+
+        chunk_tasks = deque()
         for cno in range(1, cmax + 1):
             # async with asyncio.TaskGroup() as tg:
             coro = self.apack_per_chunk(
                 session, cno=cno, ID=ID, job=job, qtype=qtype, sem=sem
             )
-            try:
-                await coro  # one at a time
-            except* Exception as e:
-                print("... attempting graceful shutdown (chunky.py:109)")
-                await session.close()
-                raise e
-            # tg.create_task(coro)
-            # asyncio.sleep(20) # secs
-            # ONLY ONE CHUNK AT A TIME
-            # try:
-            #    await asyncio.create_task(coro)
+            chunk_tasks.append(coro)
+
+        # why do I have to roll my own semaphore mechanism?
+        my_limit: int = 1  # zero-based
+        while chunk_tasks:
+            new = list()
+            if len(chunk_tasks) > my_limit:
+                new = deque(itertools.islice(chunk_tasks, my_limit))
+            else:
+                new = deque(itertools.islice(chunk_tasks, len(chunk_tasks)))
+            async with sem:
+                await asyncio.gather(*new)
+            for _ in range(len(new)):
+                chunk_tasks.popleft()
 
     async def apack_per_chunk(
         self,
@@ -147,11 +151,11 @@ class Chunky:
         if chunk_zip.exists():
             print(f"Chunk {chunk_zip} exists already")
             return
-        print(f"   getting {cno}-Objects by qtype '{qtype}' /w offset {offset}...")
 
         # 1: 0 * 1000 = 0
         # 2: 1 * 1000 = 1000
         offset = int(cno - 1) * self.chunk_size
+        print(f"   getting {cno}-Objects by qtype '{qtype}' /w offset {offset}...")
         async with sem:
             chunk = await self.get_by_type(session, qtype=qtype, ID=ID, offset=offset)
 
@@ -169,8 +173,8 @@ class Chunky:
             async with sem:
                 results = await asyncio.gather(*rel_tasks)
         except* Exception as e:
-            print("... gentle closure")
-            session.close()
+            print("... Chunky: gentle closure")
+            await session.close()
             raise e
 
         for resultM in results:
