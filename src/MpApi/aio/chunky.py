@@ -44,8 +44,6 @@ from mpapi.search import Search
 from typing import Iterator
 from pathlib import Path
 
-# chunk_sem_int = 3
-# rel_sem_int = 7
 
 # https://stackoverflow.com/questions/75204560/consuming-taskgroup-response
 class GatheringTaskGroup(asyncio.TaskGroup):
@@ -70,6 +68,7 @@ class Chunky:
         chunk_size: int = 1000,
         exclude_modules: list = [],
         semaphore: int = 100,
+        parallel_chunks: int = 1,
     ) -> None:
         """
         baseURL:          does not include "ria-ws/application"
@@ -82,7 +81,9 @@ class Chunky:
         self.client = Client(baseURL=baseURL)
         self.exclude_modules = exclude_modules
         self._semaphore = semaphore
+        self.parallel_chunks = parallel_chunks
         print(f"semaphore: {self._semaphore}")
+        print(f"parallel_chunks: {self.parallel_chunks}")
 
     async def analyze_related(self, *, data: Module) -> set:
         """
@@ -123,11 +124,11 @@ class Chunky:
             chunk_tasks.append(coro)
 
         # why do I have to roll my own semaphore mechanism?
-        my_limit: int = 1  # zero-based
+        # I want fifo and taskGroup gives different order
+        # I cant get the semaphore to work the wayI
         while chunk_tasks:
-            new = list()
-            if len(chunk_tasks) > my_limit:
-                new = deque(itertools.islice(chunk_tasks, my_limit))
+            if len(chunk_tasks) > self.parallel_chunks:
+                new = deque(itertools.islice(chunk_tasks, self.parallel_chunks))
             else:
                 new = deque(itertools.islice(chunk_tasks, len(chunk_tasks)))
             async with sem:

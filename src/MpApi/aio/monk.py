@@ -61,6 +61,8 @@ class Monk:
         self.user = user
         self.pw = pw
         self.exclude_modules = []
+        self.parallel_chunks = 1  # default
+        self.semaphore = 11  # default
         # related modules NOT to include in chunks
         # specify in jobs.dsl
 
@@ -87,7 +89,8 @@ class Monk:
             baseURL=self.baseURL,
             chunk_size=self.chunk_size,
             exclude_modules=self.exclude_modules,
-            semaphore=10,
+            semaphore=self.semaphore,
+            parallel_chunks=self.parallel_chunks,
         )
 
         async with Session(user=self.user, pw=self.pw, max_connection=100) as session:
@@ -99,7 +102,7 @@ class Monk:
                     qtype=qtype,
                 )
             except* Exception as e:
-                print("... attempting graceful shutdown (monk.py:101)")
+                print("... attempting graceful shutdown (monk.py:105)")
                 await session.close()
                 raise e
 
@@ -145,6 +148,10 @@ class Monk:
                                 each = each.strip().replace(",", "")
                                 print(f"exclude module {each}")
                                 self.exclude_modules.append(each.strip())
+                        elif parts[0] == "chunks":
+                            self.parallel_chunks = int(parts[1].strip())
+                        elif parts[0] == "semaphore":
+                            self.semaphore = int(parts[1].strip())
                         else:
                             print(
                                 f"WARNING: Ignoring unknown config value '{parts[0]}'"
