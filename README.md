@@ -21,7 +21,7 @@ conf:
 ajob:
 	# 'apack' stands for asynchronous pack
 	apack group 1234 # possible query types: approval, exhibit, group, loc, query
-	
+	query 429068 Object # run a saved query with the given id that gets back Object
 ```
 
 ## Requirements

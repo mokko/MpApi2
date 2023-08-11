@@ -400,20 +400,6 @@ class Chunky:
         )
         return {target for target in targetL}
 
-    # why do I have to roll my own semaphore mechanism?
-    # I want fifo and taskGroup gives different order
-    # I cant get the semaphore to work the wayI
-    async def _parallel_chunks(self, *, tasks, sem: asyncio.Semaphore):
-        while tasks:
-            if len(tasks) > self.parallel_chunks:
-                new = deque(itertools.islice(tasks, self.parallel_chunks))
-            else:
-                new = deque(itertools.islice(tasks, len(tasks)))
-            async with sem:
-                await asyncio.gather(*new)
-            for _ in range(len(new)):
-                tasks.popleft()
-
     def _chunk_path(
         self, *, qtype: str, ID: int, cno: int, job: str, suffix: str = ".xml"
     ) -> Path:
@@ -458,6 +444,21 @@ class Chunky:
         rno = m.totalSize(module=target)
         chnk_no = int(rno / self.chunk_size) + 1  # no of chunks
         return rno, chnk_no
+
+    # why do I have to roll my own semaphore mechanism?
+    # I want fifo and taskGroup gives different order
+    # I cant get the semaphore to work the way
+    # if one chunk is already on disk, the second slot does nothing for a long time
+    async def _parallel_chunks(self, *, tasks, sem: asyncio.Semaphore):
+        while tasks:
+            if len(tasks) > self.parallel_chunks:
+                new = deque(itertools.islice(tasks, self.parallel_chunks))
+            else:
+                new = deque(itertools.islice(tasks, len(tasks)))
+            async with sem:
+                await asyncio.gather(*new)
+            for _ in range(len(new)):
+                tasks.popleft()
 
     async def _process_related(
         self, session, *, chunk: Module, cno: int, sem: asyncio.Semaphore
