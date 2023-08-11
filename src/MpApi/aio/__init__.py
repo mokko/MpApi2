@@ -1,6 +1,6 @@
 """An Unofficial Asynchronous Client for the MuseumPlus API"""
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 import argparse
 import asyncio
 from MpApi.aio.monk import Monk

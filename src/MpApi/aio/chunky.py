@@ -170,6 +170,7 @@ class Chunky:
             print(f"   getting {cno}-{target} (related)")
             coro = self.get_related_items(session, data=chunk, sem=sem, target=target)
             rel_tasks.append(asyncio.create_task(coro))
+            # if target == "exhibit", we could also add single exhibit record
         try:
             async with sem:
                 results = await asyncio.gather(*rel_tasks)
