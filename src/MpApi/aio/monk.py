@@ -82,16 +82,7 @@ class Monk:
         """
 
         print(f"apack with {qtype} {ID}")
-        # chunk_size and exclude_modules are set during run_job
-        print(f"chunk_size {self.chunk_size} objects per chunk")
-        print(f"exclude modules {self.exclude_modules}")
-        chnkr = Chunky(
-            baseURL=self.baseURL,
-            chunk_size=self.chunk_size,
-            exclude_modules=self.exclude_modules,
-            semaphore=self.semaphore,
-            parallel_chunks=self.parallel_chunks,
-        )
+        chnkr = self._init_cmd()
 
         async with Session(user=self.user, pw=self.pw, max_connection=100) as session:
             try:
@@ -103,6 +94,23 @@ class Monk:
                 )
             except* Exception as e:
                 print("... attempting graceful shutdown (monk.py:105)")
+                await session.close()
+                raise e
+
+    async def query(self, *, ID, target):
+        print(f"query with {ID} {target}")
+        chnkr = self._init_cmd()
+
+        async with Session(user=self.user, pw=self.pw, max_connection=100) as session:
+            try:
+                await chnkr.query_all_chunks(
+                    session,
+                    ID=ID,
+                    job=self.job,
+                    target=target,
+                )
+            except* Exception as e:
+                print("... attempting graceful shutdown (monk.py:113)")
                 await session.close()
                 raise e
 
@@ -165,6 +173,13 @@ class Monk:
                                 )
                             except KeyboardInterrupt:
                                 asyncio.run(self._close())
+                        elif parts[0] == "query":
+                            try:
+                                asyncio.run(
+                                    self.query(ID=int(parts[1]), target=parts[2])
+                                )
+                            except KeyboardInterrupt:
+                                asyncio.run(self._close())
                         else:
                             print(
                                 f"WARNING: Ignoring unknown command keyword '{parts[0]}'"
@@ -179,3 +194,16 @@ class Monk:
     async def _close(self) -> None:
         print("...graceful shutdown (monk.py 173)!")
         await self.session.close()
+
+    def _init_cmd(self) -> Chunky:
+        # chunk_size and exclude_modules are set during run_job
+        print(f"chunk_size {self.chunk_size} objects per chunk")
+        print(f"exclude modules {self.exclude_modules}")
+        chnkr = Chunky(
+            baseURL=self.baseURL,
+            chunk_size=self.chunk_size,
+            exclude_modules=self.exclude_modules,
+            semaphore=self.semaphore,
+            parallel_chunks=self.parallel_chunks,
+        )
+        return chnkr

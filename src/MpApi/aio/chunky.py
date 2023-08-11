@@ -20,8 +20,8 @@ USAGE
 
     # other
         q = await chnkr.query_maker(qtype=qt, ID=ID, target=target)
-        res_no, chk_no = await chnkr.count_results(qtype="group", target="Object", ID=1234)
-        relatedTypesL = await chnkr.analyze_related(data=m)
+        res_no, chk_no = await chnkr._count_results(qtype="group", target="Object", ID=1234)
+        relatedTypesL = await chnkr._analyze_related(data=m)
         for target in relatedTypesL:
             data = get_related_items(data=m, target=target):
 """
@@ -85,15 +85,6 @@ class Chunky:
         print(f"semaphore: {self._semaphore}")
         print(f"parallel_chunks: {self.parallel_chunks}")
 
-    async def analyze_related(self, *, data: Module) -> set:
-        """
-        Return a set of targetModules in the provided data.
-        """
-        targetL = data.xpath(
-            "/m:application/m:modules/m:module/m:moduleItem/m:moduleReference/@targetModule"
-        )
-        return {target for target in targetL}
-
     async def apack_all_chunks(
         self,
         session: ClientSession,
@@ -105,7 +96,7 @@ class Chunky:
 
         # no of results; chunks needed for results
         # target is always Object?
-        rno, cmax = await self.count_results(
+        rno, cmax = await self._count_results(
             session, qtype=qtype, target="Object", ID=ID
         )
         if not rno:
@@ -123,18 +114,7 @@ class Chunky:
             )
             chunk_tasks.append(coro)
 
-        # why do I have to roll my own semaphore mechanism?
-        # I want fifo and taskGroup gives different order
-        # I cant get the semaphore to work the wayI
-        while chunk_tasks:
-            if len(chunk_tasks) > self.parallel_chunks:
-                new = deque(itertools.islice(chunk_tasks, self.parallel_chunks))
-            else:
-                new = deque(itertools.islice(chunk_tasks, len(chunk_tasks)))
-            async with sem:
-                await asyncio.gather(*new)
-            for _ in range(len(new)):
-                chunk_tasks.popleft()
+        await self._parallel_chunks(tasks=chunk_tasks, sem=sem)
 
     async def apack_per_chunk(
         self,
@@ -147,8 +127,9 @@ class Chunky:
         sem: asyncio.Semaphore,
     ) -> None:
         print(f"CHUNK {cno}")
-        chunk_fn = self._chunk_path(qtype=qtype, ID=ID, cno=cno, job=job, suffix=".xml")
-        chunk_zip = chunk_fn.with_suffix(".zip")
+        chunk_fn, chunk_zip = self._chunk_path(
+            qtype=qtype, ID=ID, cno=cno, job=job, suffix=".xml"
+        )
         if chunk_zip.exists():
             print(f"Chunk {chunk_zip} exists already")
             return
@@ -160,55 +141,10 @@ class Chunky:
         async with sem:
             chunk = await self.get_by_type(session, qtype=qtype, ID=ID, offset=offset)
 
-        rel_targets = await self.analyze_related(data=chunk)
-        rel_tasks = list()
-        for target in sorted(rel_targets):
-            if target in self.exclude_modules:
-                print(f"   ignoring {cno}-{target}")
-                continue
-
-            print(f"   getting {cno}-{target} (related)")
-            coro = self.get_related_items(session, data=chunk, sem=sem, target=target)
-            rel_tasks.append(asyncio.create_task(coro))
-            # if target == "exhibit", we could also add single exhibit record
-        try:
-            async with sem:
-                results = await asyncio.gather(*rel_tasks)
-        except* Exception as e:
-            print("... Chunky: gentle closure")
-            await session.close()
-            raise e
-
-        for resultM in results:
-            # asyncio.sleep(20) # secs
-            target = resultM.extract_mtype()
-            print(f"   adding related {target} {len(resultM)} items... ")
-            chunk += resultM
-
-        print(f"zipping multi chunk {chunk_zip}...")
-        chunk.clean()
-        chunk.toZip(path=chunk_fn)  # write zip file to disk
-
-        print("validating multi chunk...", end="")
-        chunk.validate()
-        print("done")
-
-    async def count_results(
-        self, session: ClientSession, *, qtype: str, target: str, ID: int
-    ) -> int:
-        """
-        Return the number of results for a given query. The query is described by query
-        type (qtype, e.g. group), ID, and target (target): e.g. group 1234 Object. Takes
-        one fast http query.
-        """
-        q = await self.query_maker(qtype=qtype, target=target, ID=ID, offset=0, limit=1)
-        # print(f"{str(q)}")
-        q.addField(field="__id")
-        q.validate(mode="search")
-        m = await self.client.search2(session, query=q)
-        rno = m.totalSize(module=target)
-        chnk_no = int(rno / self.chunk_size) + 1  # no of chunks
-        return rno, chnk_no
+        multi_chunk = await self._process_related(
+            session, chunk=chunk, cno=cno, sem=sem
+        )
+        self._save_chunk(chunk=multi_chunk, chunk_fn=chunk_fn)
 
     async def get_by_type(
         self,
@@ -400,9 +336,83 @@ class Chunky:
             )
         return q
 
+    async def query_all_chunks(
+        self, session: ClientSession, *, ID: int, job: str, target: str
+    ) -> None:
+        rno, cmax = await self._count_results(
+            session, qtype="query", target=target, ID=ID
+        )
+        if not rno:
+            print("Nothing to download!")
+            return
+        print(f"{rno=} {cmax=}")
+
+        sem = asyncio.Semaphore(self._semaphore)  # zero-based?
+
+        chunk_tasks = deque()
+        for cno in range(1, cmax + 1):
+            # async with asyncio.TaskGroup() as tg:
+            coro = self.query_per_chunk(
+                session, cno=cno, ID=ID, job=job, target=target, sem=sem
+            )
+            chunk_tasks.append(coro)
+
+        await self._parallel_chunks(tasks=chunk_tasks, sem=sem)
+
+    async def query_per_chunk(
+        self,
+        session,
+        *,
+        cno: int,
+        ID: int,
+        job: str,
+        target: str,
+        sem: asyncio.Semaphore,
+    ) -> None:
+        chunk_fn, chunk_zip = self._chunk_path(
+            qtype="query", ID=ID, cno=cno, job=job, suffix=".xml"
+        )
+        if chunk_zip.exists():
+            print(f"Chunk {chunk_zip} exists already")
+            return
+        offset = int(cno - 1) * self.chunk_size
+        print(f"   getting {cno}-{target} by query /w offset {offset}...")
+        async with sem:
+            chunk = await self.client.run_saved_query2(
+                session, mtype=target, ID=ID, offset=offset
+            )
+
+        multi_chunk = await self._process_related(
+            session, chunk=chunk, cno=cno, sem=sem
+        )
+        self._save_chunk(chunk=multi_chunk, chunk_fn=chunk_fn)
+
     #
+    # helper
     #
-    #
+
+    async def _analyze_related(self, *, data: Module) -> set:
+        """
+        Return a set of targetModules in the provided data.
+        """
+        targetL = data.xpath(
+            "/m:application/m:modules/m:module/m:moduleItem/m:moduleReference/@targetModule"
+        )
+        return {target for target in targetL}
+
+    # why do I have to roll my own semaphore mechanism?
+    # I want fifo and taskGroup gives different order
+    # I cant get the semaphore to work the wayI
+    async def _parallel_chunks(self, *, tasks, sem: asyncio.Semaphore):
+        while tasks:
+            if len(tasks) > self.parallel_chunks:
+                new = deque(itertools.islice(tasks, self.parallel_chunks))
+            else:
+                new = deque(itertools.islice(tasks, len(tasks)))
+            async with sem:
+                await asyncio.gather(*new)
+            for _ in range(len(new)):
+                tasks.popleft()
 
     def _chunk_path(
         self, *, qtype: str, ID: int, cno: int, job: str, suffix: str = ".xml"
@@ -420,4 +430,70 @@ class Chunky:
         project_dir: Path = Path(job) / date
         if not project_dir.is_dir():
             Path.mkdir(project_dir, parents=True)
-        return project_dir / f"{qtype}-{ID}-chunk{cno}{suffix}"
+        chunk_fn = project_dir / f"{qtype}-{ID}-chunk{cno}{suffix}"
+        chunk_zip = chunk_fn.with_suffix(".zip")
+
+        return chunk_fn, chunk_zip
+
+    async def _count_results(
+        self, session: ClientSession, *, qtype: str, target: str, ID: int
+    ) -> int:
+        """
+        Return the number of results for a given query. The query is described by query
+        type (qtype, e.g. group), ID, and target (target): e.g. group 1234 Object. Takes
+        one fast http query.
+        """
+        if qtype == "query":
+            m = await self.client.run_saved_query2(
+                session, ID=ID, mtype=target, limit=1
+            )
+        else:
+            q = await self.query_maker(
+                qtype=qtype, target=target, ID=ID, offset=0, limit=1
+            )
+            # print(f"{str(q)}")
+            q.addField(field="__id")
+            q.validate(mode="search")
+            m = await self.client.search2(session, query=q)
+        rno = m.totalSize(module=target)
+        chnk_no = int(rno / self.chunk_size) + 1  # no of chunks
+        return rno, chnk_no
+
+    async def _process_related(
+        self, session, *, chunk: Module, cno: int, sem: asyncio.Semaphore
+    ):
+        rel_targets = await self._analyze_related(data=chunk)
+        rel_tasks = list()
+        for target in sorted(rel_targets):
+            if target in self.exclude_modules:
+                print(f"   ignoring {cno}-{target}")
+                continue
+
+            print(f"   getting {cno}-{target} (related)")
+            coro = self.get_related_items(session, data=chunk, sem=sem, target=target)
+            rel_tasks.append(asyncio.create_task(coro))
+            # if target == "exhibit", we could also add single exhibit record
+        try:
+            async with sem:
+                results = await asyncio.gather(*rel_tasks)
+        except* Exception as e:
+            print("... Chunky: gentle closure")
+            await session.close()
+            raise e
+
+        for resultM in results:
+            # asyncio.sleep(20) # secs
+            target = resultM.extract_mtype()
+            print(f"   adding related {target} {len(resultM)} items... ")
+            chunk += resultM
+        return chunk
+
+    def _save_chunk(self, *, chunk, chunk_fn) -> None:
+        chunk_zip = chunk_fn.with_suffix(".zip")
+        print(f"zipping multi chunk {chunk_zip}...")
+        chunk.clean()
+        chunk.toZip(path=chunk_fn)  # write zip file to disk
+
+        print("validating multi chunk...", end="")
+        chunk.validate()
+        print("done")
