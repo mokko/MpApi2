@@ -154,7 +154,6 @@ class Monk:
                         elif parts[0] == "exclude_modules":
                             for each in parts[1:]:
                                 each = each.strip().replace(",", "")
-                                print(f"exclude module {each}")
                                 self.exclude_modules.append(each.strip())
                         elif parts[0] == "chunks":
                             self.parallel_chunks = int(parts[1].strip())

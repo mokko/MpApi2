@@ -186,7 +186,7 @@ class Chunky:
         data: Module,
         sem: asyncio.Semaphore,
         target: str,
-    ):
+    ) -> Module:
         """
         Given some object data, query for related records. Related records are
         those linked to from inside the object data. Return a new module of target type.
@@ -233,9 +233,6 @@ class Chunky:
 
         q.validate(mode="search")
         q.toFile(path=f"debug.related.{target}.xml")
-        # async with asyncio.timeout(TIMEOUT):
-
-        # async with self.related_sem:
         async with sem:
             relatedM = await self.client.search2(session, query=q)
         return relatedM
@@ -483,9 +480,8 @@ class Chunky:
             raise e
 
         for resultM in results:
-            # asyncio.sleep(20) # secs
             target = resultM.extract_mtype()
-            print(f"   adding related {target} {len(resultM)} items... ")
+            print(f"   adding related {cno}-{target} {len(resultM)} items... ")
             chunk += resultM
         return chunk
 

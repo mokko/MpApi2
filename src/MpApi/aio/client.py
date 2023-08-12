@@ -177,7 +177,7 @@ class Client:
     async def search2(self, session: ClientSession, *, query: Search) -> Module:
         query.validate(mode="search")
         txt = await self.search(session, xml=query.toString())
-        return Module(xml=txt.encode())
+        return Module(xml=txt)  # txt.encode()
 
 
 if __name__ == "__main__":
