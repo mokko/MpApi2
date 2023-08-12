@@ -3,11 +3,11 @@ Async version of the chunker. Uses deterministic search.
 
 chunking logarithm
     for a given query, 
-    (1) determine number of results and  number of chunks to get all results
-    (2) d/l first chunk objects only, 
-    (3) get all related items and assemble everything in one chunk
+    (1) determine number of results and of chunks to get all results
+    (2) d/l first chunk objects, 
+    (3) get all related items and assemble everything into one chunk
     (4) zip and save the chunk
-    (5) contiue at (3) for the next chunk until last chunk
+    (5) continue at (3) for the next chunk until last chunk
 
 USAGE
     from MpApi.aio.chunky import Chunky
@@ -15,15 +15,16 @@ USAGE
     
     chnkr = Chunky(baseURL=baseURL)
     async with Session(user=user,pw=pw):
-        for chunk in chnkr.get_by_type(qtype=qtype, ID=ID):
-            chunk.toZip(path="file.xml.zip")
+        #high-level
+        chnkr.apack_all_chunks(session, qtype="group", ID=ID, job)
+        chnkr.query_all_chunks(session, ID=ID, target="multimedia",job=job)
 
-    # other
+        #low-level
         q = await chnkr.query_maker(qtype=qt, ID=ID, target=target)
+        
+        # dunder
         res_no, chk_no = await chnkr._count_results(qtype="group", target="Object", ID=1234)
         relatedTypesL = await chnkr._analyze_related(data=m)
-        for target in relatedTypesL:
-            data = get_related_items(data=m, target=target):
 """
 
 allowed_query_types = ["approval", "exhibit", "group", "loc", "query"]
@@ -256,19 +257,6 @@ class Chunky:
         Can we assume that we always want to get objects? Not really. There may be
         scenarios where we only want Multimedia or Person. But we could for now assume
         that we always start with objects and then add whatever else has been elected.
-
-        Get all objects in the approval group, exhibit, group, loc.
-        Get all multimedia records related to the
-
-        For multimedia do we export everything or only approved/freigegebene records?
-        Since we could reduce the strain on the server, let's typically only
-
-        In the old chunker, we did collect a lot objIds and requested related objects
-        for these IDs. I dont wanna do that here because I would have to wait for the
-        object IDs to arrive before I can query related items. But perhaps this still
-        remains the best way to go since otherwise there is no guarantee that I get
-        exactly the records related to the objects in the corresponding chunk. If that is the case
-
         """
 
         if qtype not in allowed_query_types:
